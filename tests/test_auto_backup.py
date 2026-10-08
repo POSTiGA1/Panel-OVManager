@@ -369,10 +369,10 @@ def test_ab_scheduled_run_prunes_to_the_keep_count(monkeypatch, tmp_path):
     try:
         asyncio.run(app_module.auto_backup_job())
 
-        bundles = list(fake_backups.glob("ovmanager-backup-*.ovmbak"))
-        assert len(bundles) == 2, [b.name for b in bundles]
-        # the fresh bundle plus only the newest stale one survive the prune
-        fresh = max(bundles, key=lambda p: p.stat().st_mtime)
+        backups = list(fake_backups.glob("ovmanager-backup-*.*"))
+        assert len(backups) == 2, [b.name for b in backups]
+        # the fresh backup plus only the newest stale one survive the prune
+        fresh = max(backups, key=lambda p: p.stat().st_mtime)
         assert fresh.stat().st_mtime > 1_700_000_100
     finally:
         fake_engine.dispose()

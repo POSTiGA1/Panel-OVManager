@@ -1525,10 +1525,10 @@ update_safety_backup() {
             return 0
         fi
     fi
-    render_warn "Installed release lacks transactional backups — legacy safety bundle"
+    render_warn "Installed release lacks transactional backups — legacy safety copy"
     # Installed release predates transactional backups: build an equivalent
-    # .ovmbak with stdlib python. restore_update_database consumes both
-    # variants unchanged.
+    # plain .db safety copy with stdlib python. restore_update_database
+    # consumes both that and old .ovmbak bundles unchanged.
     legacy_safety_bundle "${1:-unknown}" || return 1
 }
 
@@ -1537,7 +1537,7 @@ legacy_safety_bundle() {
     [[ -f "${DATA_DIR}/ovmanager.db" ]] || return 0
     mkdir -p "$backup_dir" && chmod 700 "$backup_dir"
     python3 - "$DATA_DIR" "$backup_dir" "$app_version" <<'PY' || return 1
-import hashlib, json, os, sqlite3, sys, tarfile, tempfile
+import os, sqlite3, sys, tempfile
 from datetime import datetime, timezone
 data_dir, backup_dir, app_version = sys.argv[1], sys.argv[2], sys.argv[3]
 src = os.path.join(data_dir, "ovmanager.db")
@@ -1554,48 +1554,20 @@ s = sqlite3.connect("file:%s?mode=ro" % src, uri=True)
 d = sqlite3.connect(snap)
 try:
     s.backup(d)
+    d.commit()
 finally:
     d.close(); s.close()
-digest = hashlib.sha256()
-with open(snap, "rb") as f:
-    for chunk in iter(lambda: f.read(1048576), b""):
-        digest.update(chunk)
-digest = digest.hexdigest()
-now = datetime.now(timezone.utc)
-manifest = {"format": "ovmanager-backup", "format_version": 1,
-            "app_version": app_version, "created_at": now.isoformat(),
-            "database": "panel.db", "database_sha256": digest}
-stamp = now.strftime("%Y%m%d_%H%M%S")
-final = os.path.join(backup_dir, "ovmanager-pre-update-%s-v1.ovmbak" % stamp)
-fd, tmp = tempfile.mkstemp(prefix=".ovmanager-backup-", suffix=".part", dir=backup_dir)
-os.close(fd); os.chmod(tmp, 0o600)
+stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+final = os.path.join(backup_dir, "ovmanager-pre-update-%s.db" % stamp)
 try:
-    with tempfile.TemporaryDirectory(prefix="ovmanager-bundle-") as stage:
-        with open(os.path.join(stage, "manifest.json"), "w", encoding="utf-8") as f:
-            json.dump(manifest, f, sort_keys=True, indent=2); f.write("\n")
-        with open(os.path.join(stage, "checksums.sha256"), "w", encoding="ascii") as f:
-            f.write("%s  panel.db\n" % digest)
-        with tarfile.open(tmp, "w:gz", format=tarfile.PAX_FORMAT) as archive:
-            archive.add(snap, arcname="panel.db", recursive=False)
-            archive.add(os.path.join(stage, "manifest.json"), arcname="manifest.json", recursive=False)
-            archive.add(os.path.join(stage, "checksums.sha256"), arcname="checksums.sha256", recursive=False)
-    with tarfile.open(tmp, "r:gz") as archive:
-        names = {m.name for m in archive.getmembers() if m.isfile()}
-        if names != {"panel.db", "manifest.json", "checksums.sha256"}:
-            raise SystemExit("bundle verification failed")
-        data = archive.extractfile("panel.db").read()
-        if hashlib.sha256(data).hexdigest() != digest:
-            raise SystemExit("bundle checksum mismatch")
-    os.replace(tmp, final); os.chmod(final, 0o600)
+    os.replace(snap, final); os.chmod(final, 0o600)
 finally:
-    try: os.unlink(tmp)
-    except FileNotFoundError: pass
     try: os.unlink(snap)
     except FileNotFoundError: pass
 print(final)
 PY
-    # Retention for legacy pre-update bundles (backend prunes only its own).
-    ls -t "$backup_dir"/ovmanager-pre-update-*.ovmbak 2>/dev/null | tail -n +11 | xargs -r rm -f
+    # Retention for legacy pre-update backups (backend prunes only its own).
+    ls -t "$backup_dir"/ovmanager-pre-update-*.db "$backup_dir"/ovmanager-pre-update-*.ovmbak 2>/dev/null | tail -n +11 | xargs -r rm -f
     return 0
 }
 
@@ -1631,15 +1603,18 @@ try:
     live_version = version(live)
 except Exception:
     raise SystemExit(0)
-with tarfile.open(bundle, "r:gz") as tf:
-    data = tf.extractfile("panel.db").read()
-fd, tmp = tempfile.mkstemp(prefix=".update-compare-")
-try:
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-    bundle_version = version(tmp)
-finally:
-    os.unlink(tmp)
+if tarfile.is_tarfile(bundle):
+    with tarfile.open(bundle, "r:gz") as tf:
+        data = tf.extractfile("panel.db").read()
+    fd, tmp = tempfile.mkstemp(prefix=".update-compare-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        bundle_version = version(tmp)
+    finally:
+        os.unlink(tmp)
+else:
+    bundle_version = version(bundle)
 raise SystemExit(0 if bundle_version != live_version else 1)
 PY
 }
@@ -1648,18 +1623,29 @@ restore_update_database() {
     local bundle="$1" db="${2:-${DATA_DIR}/ovmanager.db}"
     [[ -f "$bundle" ]] || return 1
     python3 - "$bundle" "$db" <<'PY'
-import hashlib, json, os, tarfile, tempfile, sys
-bundle, db = sys.argv[1:]
-with tarfile.open(bundle, "r:gz") as tf:
-    names = {m.name for m in tf.getmembers() if m.isfile()}
-    if names != {"panel.db", "manifest.json", "checksums.sha256"}:
-        raise SystemExit("unsafe update backup")
-    manifest = json.load(tf.extractfile("manifest.json"))
-    checksum_line = tf.extractfile("checksums.sha256").read().decode("ascii").strip()
-    data = tf.extractfile("panel.db").read()
-    digest = hashlib.sha256(data).hexdigest()
-    if digest != manifest.get("database_sha256") or checksum_line != f"{digest}  panel.db":
-        raise SystemExit("update backup checksum mismatch")
+import hashlib, json, os, sqlite3, tarfile, tempfile, sys
+src, db = sys.argv[1:]
+if tarfile.is_tarfile(src):
+    with tarfile.open(src, "r:gz") as tf:
+        names = {m.name for m in tf.getmembers() if m.isfile()}
+        if names != {"panel.db", "manifest.json", "checksums.sha256"}:
+            raise SystemExit("unsafe update backup")
+        manifest = json.load(tf.extractfile("manifest.json"))
+        checksum_line = tf.extractfile("checksums.sha256").read().decode("ascii").strip()
+        data = tf.extractfile("panel.db").read()
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != manifest.get("database_sha256") or checksum_line != f"{digest}  panel.db":
+            raise SystemExit("update backup checksum mismatch")
+else:
+    with open(src, "rb") as f:
+        data = f.read()
+    con = sqlite3.connect("file:%s?mode=ro" % src, uri=True)
+    try:
+        row = con.execute("PRAGMA quick_check").fetchone()
+    finally:
+        con.close()
+    if not row or row[0] != "ok":
+        raise SystemExit("update backup integrity check failed")
 parent = os.path.dirname(db); fd, tmp = tempfile.mkstemp(prefix=".update-rollback-", dir=parent)
 try:
     try:

@@ -1221,7 +1221,7 @@ def test_every_wizard_step_says_what_its_options_mean():
 
 def test_safety_backup_falls_back_without_maintenance_module(tmp_path):
     """Updates from releases predating backend.routers.maintenance must
-    still produce a verified .ovmbak (defect: Step 1/6 died on old trees)."""
+    still produce a verified .db safety copy (defect: Step 1/6 died on old trees)."""
     import sqlite3
 
     fake_install = tmp_path / "install"
@@ -1245,7 +1245,7 @@ def test_safety_backup_falls_back_without_maintenance_module(tmp_path):
     )
     r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
-    bundles = sorted((fake_data / "backups").glob("ovmanager-pre-update-*.ovmbak"))
+    bundles = sorted((fake_data / "backups").glob("ovmanager-pre-update-*.db"))
     assert len(bundles) == 1, r.stdout
     assert bundles[0].stat().st_mode & 0o777 == 0o600
     out_db = tmp_path / "restored.db"
@@ -1282,7 +1282,7 @@ def test_db_restore_needed_skips_untouched_database(tmp_path):
     )
     r = subprocess.run(["bash", "-c", mk], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
-    (bundle,) = sorted((fake_data / "backups").glob("*.ovmbak"))
+    (bundle,) = sorted((fake_data / "backups").glob("*.db"))
     check = (
         _extract_function("db_restore_needed")
         + f'\nDATA_DIR="{fake_data}"\nif db_restore_needed "{bundle}"; then echo NEEDS; else echo SKIP; fi\n'

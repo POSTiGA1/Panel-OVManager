@@ -14,7 +14,6 @@ from sqlalchemy import create_engine
 
 import cli.backup as backup
 import cli.restore as restore
-from backend.operations.backup.bundle import extract_database
 from cli.env import Install
 from cli.main import main
 
@@ -380,7 +379,7 @@ def test_restore_takes_a_safety_backup_before_it_activates(monkeypatch, tmp_path
         safety = backups / data["safety_backup"]
         assert safety.is_file(), data
         extracted = tmp_path / "safety-check.db"
-        extract_database(safety, extracted)
+        shutil.copy2(safety, extracted)
         assert _value(extracted) == "live"
         assert "Safety copy" in restore.render_restore_text(data)
     finally:

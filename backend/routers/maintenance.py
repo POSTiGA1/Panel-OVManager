@@ -25,8 +25,6 @@ from backend.node.sync import clean_stale_sessions_all_nodes, sync_all_user_limi
 from backend.operations.backup.bundle import (
     BUNDLE_SUFFIX,
     BackupBundleError,
-    create_bundle,
-    extract_database,
     verify_bundle,
 )
 from backend.operations.billing.usage import prune_daily
@@ -64,9 +62,10 @@ def _create_panel_backup_unlocked(keep: int | None = None, *, label: str = "back
     Shared by the owner-only POST route and the scheduled auto-backup job.
     Checkpoints the WAL first so the backup sees a consistent snapshot, then
     copies through the SQLite online-backup API (safe while writers are
-    active). Returns the new backup path, or ``None`` when the database file
-    does not exist; other failures raise to the caller. ``keep`` caps how
-    many timestamped backups are retained.
+    active) and publishes the snapshot itself as a plain ``.db`` file. Returns
+    the new backup path, or ``None`` when the database file does not exist;
+    other failures raise to the caller. ``keep`` caps how many timestamped
+    backups are retained.
     """
     if not DB_PATH.exists():
         return None
@@ -83,12 +82,19 @@ def _create_panel_backup_unlocked(keep: int | None = None, *, label: str = "back
     os.chmod(snapshot, 0o600)
     try:
         _sqlite_backup(str(DB_PATH), str(snapshot))
-        backup_path = create_bundle(snapshot, BACKUP_DIR, label=label)
+        stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        backup_path = BACKUP_DIR / f"ovmanager-{label}-{stamp}.db"
+        counter = 1
+        while backup_path.exists():
+            backup_path = BACKUP_DIR / f"ovmanager-{label}-{stamp}-{counter}.db"
+            counter += 1
+        copy2(snapshot, backup_path)
+        os.chmod(backup_path, 0o600)
     finally:
         snapshot.unlink(missing_ok=True)
 
     all_backups = sorted(
-        BACKUP_DIR.glob(f"ovmanager-{label}-*{BUNDLE_SUFFIX}"),
+        BACKUP_DIR.glob(f"ovmanager-{label}-*.*"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -148,7 +154,7 @@ def stored_backups() -> list[dict]:
 
 @router.get("/backup/download", response_class=FileResponse)
 async def download_backup(user: dict = Depends(require_owner)):
-    """Download the latest versioned bundle (or a legacy .db backup)."""
+    """Download the newest backup (a .db file, or a legacy .ovmbak bundle)."""
 
     backups = _backup_files()
     if not backups:
@@ -176,7 +182,7 @@ async def list_backups(user: dict = Depends(require_owner)):
             "name": b.name,
             "size": b.stat().st_size,
             "modified": datetime.fromtimestamp(b.stat().st_mtime, tz=UTC).isoformat(),
-            "format": "bundle" if b.name.endswith(BUNDLE_SUFFIX) else "legacy-db",
+            "format": "bundle" if b.name.endswith(BUNDLE_SUFFIX) else "db",
             "verified": None,
         }
         if b.name.endswith(BUNDLE_SUFFIX):
@@ -325,7 +331,7 @@ def _atomic_db_restore(src_path: Path, user: dict, detail: str) -> ResponseModel
     with _maintenance_lock:
         candidate: Path | None = None
         rollback_db: Path | None = None
-        safety_bundle: Path | None = None
+        safety_backup: Path | None = None
         activated = False
         live_uid = live_gid = -1
         try:
@@ -337,14 +343,13 @@ def _atomic_db_restore(src_path: Path, user: dict, detail: str) -> ResponseModel
 
             candidate = _stage_restore_candidate(src_path)
 
-            safety_bundle = _create_panel_backup_unlocked(keep=10, label="pre-restore")
-            if safety_bundle is None:
+            safety_backup = _create_panel_backup_unlocked(keep=10, label="pre-restore")
+            if safety_backup is None:
                 raise RuntimeError("current database is missing; safety backup could not be created")
-            verify_bundle(safety_bundle)
             fd, raw_rollback = tempfile.mkstemp(prefix=".restore-rollback-", suffix=".db", dir=DB_DIR)
             os.close(fd)
             rollback_db = Path(raw_rollback)
-            extract_database(safety_bundle, rollback_db)
+            copy2(safety_backup, rollback_db)
 
             restore_lock.set()
             engine.dispose()
@@ -369,11 +374,11 @@ def _atomic_db_restore(src_path: Path, user: dict, detail: str) -> ResponseModel
                 conn.close()
 
             actor = user.get("username") if isinstance(user, dict) else str(user)
-            log_event(None, "maintenance.restore", actor=actor, detail=f"{detail}; safety={safety_bundle.name}")
+            log_event(None, "maintenance.restore", actor=actor, detail=f"{detail}; safety={safety_backup.name}")
             return ResponseModel(
                 success=True,
                 msg="Database restored and verified successfully",
-                data={"safety_backup": safety_bundle.name, "rolled_back": False},
+                data={"safety_backup": safety_backup.name, "rolled_back": False},
             )
         except Exception as exc:
             logger.exception("Restore failed%s", " after activation; rolling back" if activated else " during staging")
@@ -400,7 +405,7 @@ def _atomic_db_restore(src_path: Path, user: dict, detail: str) -> ResponseModel
                 success=False,
                 msg=message,
                 data={
-                    "safety_backup": safety_bundle.name if safety_bundle else None,
+                    "safety_backup": safety_backup.name if safety_backup else None,
                     "rolled_back": rolled_back,
                     "data_safe": (not activated) or rolled_back,
                 },
@@ -415,19 +420,8 @@ def _atomic_db_restore(src_path: Path, user: dict, detail: str) -> ResponseModel
 
 
 def _restore_artifact(src_path: Path, user: dict, detail: str) -> ResponseModel:
-    """Restore a verified bundle or a backward-compatible legacy SQLite file."""
+    """Restore a plain SQLite backup file (legacy .ovmbak bundles no longer extract)."""
 
-    if src_path.name.endswith(BUNDLE_SUFFIX):
-        fd, raw_db = tempfile.mkstemp(prefix=".ovmanager-restore-", suffix=".db", dir=BACKUP_DIR)
-        os.close(fd)
-        extracted = Path(raw_db)
-        try:
-            extract_database(src_path, extracted)
-            return _atomic_db_restore(extracted, user, detail)
-        except BackupBundleError as exc:
-            return ResponseModel(success=False, msg=f"Invalid backup bundle: {exc}", data=None)
-        finally:
-            extracted.unlink(missing_ok=True)
     return _atomic_db_restore(src_path, user, detail)
 
 

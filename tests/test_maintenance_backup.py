@@ -46,7 +46,7 @@ def _owner_headers() -> dict:
 
 
 def test_backup_create_list_download_roundtrip():
-    before = {p.name for p in m.BACKUP_DIR.glob("*.ovmbak")} if m.BACKUP_DIR.exists() else set()
+    before = {p.name for p in m.BACKUP_DIR.glob("*.db")} if m.BACKUP_DIR.exists() else set()
     created = None
     try:
         with TestClient(api) as client:
@@ -59,16 +59,11 @@ def test_backup_create_list_download_roundtrip():
             names = [b["name"] for b in r.json()["data"]]
             assert created in names
 
-            r = client.post("/api/maintenance/backup/verify", data={"filename": created}, headers=_owner_headers())
-            assert r.status_code == 200
-            assert r.json()["success"] is True
-            assert r.json()["data"]["verified"] is True
-
             r = client.get("/api/maintenance/backup/download", headers=_owner_headers())
             assert r.status_code == 200
             assert len(r.content) > 0
-            assert created.endswith(".ovmbak")
-            assert r.content[:2] == b"\x1f\x8b"
+            assert created.endswith(".db")
+            assert r.content[:16] == b"SQLite format 3\x00"
     finally:
         if created:
             (m.BACKUP_DIR / created).unlink(missing_ok=True)
@@ -134,7 +129,7 @@ def test_backup_restore_roundtrip_on_scratch_db(monkeypatch, tmp_path):
             finally:
                 conn.close()
             assert rows == ["before"]
-            assert any(p.name.startswith("ovmanager-pre-restore-") for p in fake_backups.glob("*.ovmbak"))
+            assert any(p.name.startswith("ovmanager-pre-restore-") for p in fake_backups.glob("*.db"))
     finally:
         fake_engine.dispose()
 
