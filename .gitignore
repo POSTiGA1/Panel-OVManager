@@ -62,6 +62,9 @@ PROJECT_PLAN.md
 # graphify knowledge graph output (local trial, never publish)
 graphify-out/
 
+# git worktrees (local isolation, never publish)
+.worktrees/
+
 # AI tooling (never published)
 .opencode/
 AGENTS.md
