@@ -7,6 +7,7 @@ import { getDisplayTimezone } from './displayTimezone';
 
 function displayLocale() {
   const l = (i18n.language || '').toLowerCase();
+  // ponytail: any RTL → Persian formatter; add locale map when second RTL lands
   if (isRTL(l)) return 'fa-u-ca-gregory-nu-latn';
   if (l.startsWith('ru')) return 'ru';
   if (l.startsWith('zh')) return 'zh';

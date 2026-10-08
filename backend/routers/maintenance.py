@@ -420,9 +420,20 @@ def _atomic_db_restore(src_path: Path, user: dict, detail: str) -> ResponseModel
 
 
 def _restore_artifact(src_path: Path, user: dict, detail: str) -> ResponseModel:
-    """Restore a plain SQLite backup file (legacy .ovmbak bundles no longer extract)."""
+    """Restore a plain SQLite backup file.
 
-    return _atomic_db_restore(src_path, user, detail)
+    Legacy ``.ovmbak`` names stay accepted (the updater and health checks hand
+    out both suffixes during the transition) but no longer extract: the bundle
+    is staged via the same SQLite path, and a refusal says so instead of
+    surfacing a bare "not a database".
+    """
+    result = _atomic_db_restore(src_path, user, detail)
+    if not result.success and src_path.name.endswith(BUNDLE_SUFFIX):
+        result.msg = (
+            "legacy bundle, will stage via the SQLite path only — the panel no longer "
+            f"extracts .ovmbak bundles; restore the extracted .db file instead ({result.msg})"
+        )
+    return result
 
 
 def restore_stored_backup(name: str, actor: str) -> ResponseModel:

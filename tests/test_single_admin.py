@@ -25,9 +25,10 @@ def test_creating_a_second_admin_is_refused():
     resp = client.post(
         "/api/admin/",
         json={"username": "second_admin_x", "password": "second-admin-pw1"},
-        headers=_owner_headers(),
+        headers={**_owner_headers(), "X-Requested-With": "XMLHttpRequest"},
     )
-    assert resp.status_code in (403, 404, 405)
+    assert resp.status_code in (404, 410), resp.text
+    assert resp.headers["content-type"].startswith("application/json")
     db = SessionLocal()
     try:
         assert crud.get_admin_by_username(db, "second_admin_x") is None

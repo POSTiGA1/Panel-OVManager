@@ -267,12 +267,13 @@ async def spa_root():
     return await _serve_react()
 
 
-@api.get("/{path:path}", include_in_schema=False)
-async def spa_catchall(path: str):
+@api.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
+async def spa_catchall(path: str, request: Request):
+    # Deleted API surfaces (e.g. /api/admin/*) must answer JSON, never SPA HTML.
     if path.startswith(("api/", "doc", "openapi.json", "health", "assets/", "sub/")):
-        from fastapi.responses import JSONResponse
-
         return JSONResponse({"detail": "Not Found"}, status_code=404)
+    if request.method != "GET":
+        return JSONResponse({"detail": "Method Not Allowed"}, status_code=405)
     return await _serve_react()
 
 

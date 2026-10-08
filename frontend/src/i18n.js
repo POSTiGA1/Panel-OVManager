@@ -17,6 +17,7 @@ export const SUPPORTED_LANGS = ['fa', 'en', 'ru', 'cn'];
 /** @type {Record<string, string>} */
 export const LANG_LABELS = { fa: 'فارسی', en: 'English', ru: 'Русский', cn: '中文' };
 
+// ponytail: Persian-only RTL; add ar/he when second RTL locale lands
 export const isRTL = (lng) => String(lng).startsWith('fa');
 
 const applyDocumentDir = (lng) => {

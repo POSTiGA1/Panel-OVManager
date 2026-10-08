@@ -4,10 +4,7 @@
 ``from backend.db.crud import create_user`` both keep working.
 """
 
-from backend.db.crud.admins import (
-    get_admin_by_telegram_id,
-    get_admin_by_username,
-)
+from backend.db.crud.admins import get_admin_by_username
 from backend.db.crud.nodes import (
     Node,
     _manual_country,
@@ -65,7 +62,6 @@ __all__ = [
     "delete_user",
     "effective_user_defaults",
     "get_active_nodes",
-    "get_admin_by_telegram_id",
     "get_admin_by_username",
     "get_all_nodes",
     "get_all_users",
