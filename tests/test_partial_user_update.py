@@ -80,7 +80,7 @@ def _make_user(name: str) -> str:
         if row is None:
             import uuid as _uuid
 
-            row = User(uuid=str(_uuid.uuid4()), name=name, owner=config.ADMIN_USERNAME)
+            row = User(uuid=str(_uuid.uuid4()), name=name)
             db.add(row)
         row.expiry_date = dt.date(2030, 1, 1)
         row.total = 10 * GB

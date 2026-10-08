@@ -52,12 +52,15 @@ def _owner() -> dict:
 def _ensure_admin(username: str) -> None:
     from backend.db import crud
     from backend.db.engine import SessionLocal
-    from backend.schema import AdminCreate
 
     db = SessionLocal()
     try:
         if crud.get_admin_by_username(db, username) is None:
-            crud.create_admin(db, AdminCreate(username=username, password=f"pw-{username}-12345"))
+            from backend.auth.hash import hash_password
+            from backend.db.models import Admin
+
+            db.add(Admin(username=username, password=hash_password(f"pw-{username}-12345")))
+            db.commit()
     finally:
         db.close()
 
@@ -90,18 +93,11 @@ def _is_active(uuid: str) -> bool:
 
 
 def test_admin_password_change_revokes_live_sessions():
-    """Old bearer tokens must die when the admin's password is rotated."""
+    """The multi-admin password rotation surface is gone with the cut."""
     _run_migrations()
-    name = "ac_pwrevoke_admin"
-    _ensure_admin(name)
-    admin = _token(name, "admin")
     client = TestClient(api)
-    assert client.get("/api/users/", headers=admin).status_code == 200
-
-    resp = client.put("/api/admin/", json={"username": name, "password": "new-pw-rotated-12345"}, headers=_owner())
-    assert resp.status_code == 200, resp.text
-
-    assert client.get("/api/users/", headers=admin).status_code == 401
+    resp = client.put("/api/admin/", json={"username": "x", "password": "new-pw-rotated-12345"}, headers=_owner())
+    assert resp.status_code in (403, 404, 405)
 
 
 def _set_user_fields(name: str, **fields) -> None:

@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.db import models as _models  # noqa: F401
-from backend.db.engine import Base
 from backend.db.migrations.schema import (
-    _add_column_sql,
     column_names,
-    table_names,
 )
 from backend.logger import logger
 
@@ -40,15 +36,12 @@ def _seed_settings(db: Session) -> None:
 
 
 def _add_admin_user_defaults(db: Session) -> None:
-    """Per-admin new-user defaults (v13).
+    """Retired no-op (was: per-admin new-user defaults, v13).
 
-    The owner sets the global plan in Settings (the Telegram bot block).
-    An admin may override it for the users they create; NULL means inherit.
+    Multi-admin is gone: defaults live on ``settings`` alone, so the
+    ``admins.default_*`` columns no longer exist in the models.
     """
-    for name in ("default_days", "default_traffic_gb", "default_max_users"):
-        if "admins" not in table_names(db) or name in column_names(db, "admins"):
-            continue
-        db.execute(text(_add_column_sql("admins", Base.metadata.tables["admins"].columns[name])))
+    logger.info("migrations v13: per-admin defaults are retired — no-op")
 
 
 def _seed_summary() -> str:
@@ -72,18 +65,15 @@ def _seed_owner_and_first_user(db: Session) -> None:
     seeded = False
     owner = (config.ADMIN_USERNAME or "admin").strip()
     if owner and db.query(Admin).filter(Admin.username == owner).first() is None:
-        db.add(
-            Admin(
-                username=owner,
-                password="",
-                disabled=False,
-                is_owner=True,
-            )
-        )
+        kwargs = {}
+        if "is_owner" in column_names(db, "admins"):
+            kwargs["is_owner"] = True
+        db.add(Admin(username=owner, password="", **kwargs))
         db.flush()
         seeded = True
 
-    if db.query(User).count() == 0:
+    legacy_owner_column = "owner" in column_names(db, "users")
+    if db.query(User).count() == 0 and not legacy_owner_column:
         settings = db.query(Settings).first()
         days = int(getattr(settings, "default_days", 30) or 30) if settings else 30
         name = (getattr(config, "DEFAULT_USER", "") or "user1").strip() or "user1"
@@ -92,7 +82,6 @@ def _seed_owner_and_first_user(db: Session) -> None:
                 User(
                     uuid=str(uuid_mod.uuid4()),
                     name=name,
-                    owner=owner or "admin",
                     max_logins=1,
                     expiry_date=date.today() + timedelta(days=days),
                     is_active=True,
@@ -138,7 +127,7 @@ def _import_owner_credential(db: Session) -> None:
 
     row = db.query(Admin).filter(Admin.username == owner).first()
     if row is None:
-        db.add(Admin(username=owner, password=env_hash, disabled=False))
+        db.add(Admin(username=owner, password=env_hash))
         logger.info("migrations v16: created the owner row from the .env hash")
         return
 

@@ -51,7 +51,6 @@ def _seed(seed_id: str) -> None:
                 User(
                     uuid=str(_uuid.uuid4()),
                     name=f"{PREFIX}user_{seed_id}_{i:03d}",
-                    owner="owner",
                     expiry_date=expired,
                     total=10**12,
                     used=0,

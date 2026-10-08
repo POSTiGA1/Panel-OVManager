@@ -29,12 +29,14 @@ def _owner():
 
 
 def _admin_token(username: str) -> str:
-    from backend.schema import AdminCreate
-
     db = SessionLocal()
     try:
         if crud.get_admin_by_username(db, username) is None:
-            crud.create_admin(db, AdminCreate(username=username, password=f"pw-{username}-12345"))
+            from backend.auth.hash import hash_password
+            from backend.db.models import Admin
+
+            db.add(Admin(username=username, password=hash_password(f"pw-{username}-12345")))
+            db.commit()
         return create_session(db, username, "admin")
     finally:
         db.close()

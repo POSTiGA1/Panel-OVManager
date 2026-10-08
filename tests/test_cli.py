@@ -518,7 +518,7 @@ def test_reset_password_revokes_sessions(tmp_path):
     eng = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(eng)
     db = sessionmaker(bind=eng)()
-    db.add(Admin(username="admin", password="old", disabled=False))
+    db.add(Admin(username="admin", password="old"))
     db.add(AuthSession(token_hash="a" * 64, username="admin", role="owner", created_at=0, expires_at=9e9, last_seen_at=0))
     db.commit()
 

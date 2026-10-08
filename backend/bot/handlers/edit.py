@@ -39,9 +39,6 @@ def _flow(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
 
 async def start_edit(update: Update, context: ContextTypes.DEFAULT_TYPE, actor: Actor, uuid: str) -> None:
     lang = lang_of(update, context)
-    if actor.role != "owner":
-        await edit_or_reply(update, t(lang, "edit_owner_only"))
-        return
     panel = Panel(actor.token)
     user = await fetch_user(update, panel, uuid, lang)
     if not user:
@@ -132,10 +129,6 @@ async def _commit(update: Update, context: ContextTypes.DEFAULT_TYPE, actor: Act
     lang = lang_of(update, context)
     flow = _flow(context)
     if flow is None or flow.get("step") != "confirm":
-        return
-    if actor.role != "owner":
-        clear_flow(context)
-        await edit_or_reply(update, t(lang, "edit_owner_only"))
         return
     uuid = flow.get("uuid") or ""
     name = flow.get("name") or ""

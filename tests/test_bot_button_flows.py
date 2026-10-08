@@ -156,11 +156,6 @@ async def test_start_shows_persistent_sections_and_home_actions():
     assert "Settings" in labels
     assert "settings" in callbacks(next(m for m in markups if not isinstance(m, ReplyKeyboardMarkup)))
 
-    admin_update = make_update(text="/start")
-    await handle_start(admin_update, make_context(actor=make_actor(role="admin")))
-    admin_keyboard = next(m for m in all_markups(admin_update) if isinstance(m, ReplyKeyboardMarkup))
-    assert "Settings" not in reply_labels(admin_keyboard)
-
 
 @pytest.mark.asyncio
 async def test_text_stats_reuses_status_summary(monkeypatch):
@@ -186,7 +181,7 @@ async def test_text_stats_reuses_status_summary(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_text_settings_owner_view_and_admin_denied():
+async def test_text_settings_owner_view():
     from backend.bot.handlers import router as router_mod
 
     owner_update = make_update(text="Settings")
@@ -195,10 +190,6 @@ async def test_text_settings_owner_view_and_admin_denied():
     assert any(t("en", "settings_defaults") in text for text in owner_texts)
     assert any(t("en", "settings_bot", state=t("en", "settings_disabled")) in text for text in owner_texts)
     assert "settings" in callbacks(all_markups(owner_update)[-1])  # refresh
-
-    admin_update = make_update(text="Settings")
-    await router_mod.on_text(admin_update, make_context(actor=make_actor(role="admin")))
-    assert any(t("en", "settings_owner_only") in text for text in all_texts(admin_update))
 
 
 @pytest.mark.asyncio

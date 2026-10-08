@@ -14,7 +14,6 @@ from backend.logger import logger
 from backend.schema import CreateUser, UpdateUser
 from backend.utils.like import escape_like
 
-from .admins import it_is_admin
 from .settings import get_settings
 
 
@@ -32,22 +31,13 @@ def get_user_id_name_pairs(db: Session) -> list[tuple[str, str]]:
     return [(str(uid), name) for uid, name in db.query(User.id, User.name).all()]
 
 
-def get_users_by_admin(db: Session, admin_username: str):
-    users = db.query(User).filter(User.owner == admin_username).all()
-    return users
-
-
-def count_users(db: Session, owner: str | None = None) -> int:
-    query = db.query(User)
-    if owner is not None:
-        query = query.filter(User.owner == owner)
-    return query.count()
+def count_users(db: Session) -> int:
+    return db.query(User).count()
 
 
 def get_users_page(
     db: Session,
     *,
-    owner: str | None = None,
     search: str | None = None,
     page: int = 1,
     page_size: int = 100,
@@ -58,8 +48,6 @@ def get_users_page(
     table; the panel UI filters client-side and uses the unpaginated default.
     """
     query = db.query(User)
-    if owner is not None:
-        query = query.filter(User.owner == owner)
     if search:
         query = query.filter(User.name.ilike(f"%{escape_like(search)}%", escape="\\"))
     total = query.count()
@@ -83,51 +71,34 @@ def get_user_by_uuid(db: Session, uuid: str):
     return None
 
 
-def effective_user_defaults(db: Session, admin_username: str | None = None) -> dict:
-    """New-user defaults for one admin: their override, else the owner's global.
-
-    The owner sets the global plan in Settings (the Telegram bot block); an
-    admin may override days/traffic/devices for the users they create. NULL
-    override always inherits.
+def effective_user_defaults(db: Session) -> dict:
+    """New-user defaults from the global settings plan.
 
     ``traffic_gb`` is a prefill hint, not a server-side cap: ``CreateUser.total``
     is None-or-bytes (None means unlimited, which the bot sends for "0 GB"), so
     create_user cannot distinguish "no cap" from "unset" and must not invent one.
     """
-    global_defaults = {"days": 30, "traffic_gb": 100, "max_users": 1}
+    defaults = {"days": 30, "traffic_gb": 100, "max_users": 1}
     try:
         settings = get_settings(db)
         if settings is not None:
-            global_defaults = {
+            defaults = {
                 "days": int(getattr(settings, "default_days", 30) or 30),
                 "traffic_gb": int(getattr(settings, "default_traffic_gb", 100) or 100),
                 "max_users": int(getattr(settings, "default_max_users", 1) or 1),
             }
     except Exception:
         pass
-
-    resolved = dict(global_defaults)
-    if admin_username:
-        admin = it_is_admin(db, admin_username)
-        if admin is not None:
-            for key, attr in (
-                ("days", "default_days"),
-                ("traffic_gb", "default_traffic_gb"),
-                ("max_users", "default_max_users"),
-            ):
-                value = getattr(admin, attr, None)
-                if value is not None:
-                    resolved[key] = int(value)
-    return resolved
+    return defaults
 
 
-def create_user(db: Session, request: CreateUser, owner: str):
+def create_user(db: Session, request: CreateUser, owner: str | None = None):
     from datetime import date as _date
     from datetime import timedelta as _timedelta
 
     username = request.name.replace(" ", "_")
 
-    defaults = effective_user_defaults(db, owner)
+    defaults = effective_user_defaults(db)
     expiry = request.expiry_date
     if expiry is None:
         expiry = _date.today() + _timedelta(days=defaults["days"])
@@ -138,7 +109,6 @@ def create_user(db: Session, request: CreateUser, owner: str):
         expiry_date=expiry,
         total=request.total,
         max_logins=(defaults["max_users"] if request.max_logins is None else request.max_logins),
-        owner=owner,
         tag=tag,
         uuid=str(uuid4()),
     )
@@ -265,7 +235,6 @@ def restore_user(db: Session, snapshot: dict):
         max_logins=int(snapshot.get("max_logins") or 1),
         expiry_date=expiry,
         is_active=bool(snapshot.get("is_active", True)),
-        owner=snapshot.get("owner") or "",
     )
     db.add(new_user)
     try:
@@ -279,19 +248,14 @@ def restore_user(db: Session, snapshot: dict):
     return new_user
 
 
-def adjust_user(db: Session, uuid: str, days: int = 0, add_bytes: int = 0, owner: str | None = None) -> User | None:
+def adjust_user(db: Session, uuid: str, days: int = 0, add_bytes: int = 0) -> User | None:
     """Extend expiry (+days) and/or add traffic quota (+add_bytes) for one user.
 
-    When ``owner`` is given (non-owner admins), the user must belong to that
-    admin — a request must never cross tenant boundaries. Unauthorized UUIDs
-    return None without revealing that they exist.
+    Unknown UUIDs return None without revealing that they exist.
     """
     from datetime import timedelta
 
-    query = db.query(User).filter(User.uuid == uuid)
-    if owner is not None:
-        query = query.filter(User.owner == owner)
-    user = query.first()
+    user = db.query(User).filter(User.uuid == uuid).first()
     if user is None:
         return None
     if days:

@@ -145,8 +145,7 @@ async def update_node_handler(node_id: int, request: NodeCreate, db: Session) ->
     if not ok:
         logger.warning("Node %s updated in DB but unreachable for live sync", request.address)
         return False, nr.conflict_msg or (
-            "Node unreachable — the panel saved the record but could not apply the settings. "
-            "Configure after registration."
+            "Node unreachable — the panel saved the record but could not apply the settings. Configure after registration."
         )
 
     configured = await run_in_threadpool(
@@ -324,11 +323,7 @@ def _remote_plan(node, db: Session) -> tuple[str | None, int, list[tuple[str, in
     """Domain (or None), the node's own port, and the other nodes as fallbacks."""
     settings = crud.get_settings(db)
     domain = (getattr(settings, "panel_domain", None) or "").strip() or None
-    fallbacks = [
-        (n.address, int(n.ovpn_port or 0))
-        for n in crud.get_all_nodes(db)
-        if n.id != node.id
-    ]
+    fallbacks = [(n.address, int(n.ovpn_port or 0)) for n in crud.get_all_nodes(db) if n.id != node.id]
     return domain, int(node.ovpn_port or 0), fallbacks
 
 

@@ -227,7 +227,6 @@ const DashboardLayout = () => {
       if (gPending.current) {
         gPending.current = false;
         const routes: any = { d: '/', u: '/users', s: '/settings' };
-        if (userRole === 'owner') routes.a = '/admins';
         if (userRole === 'owner') routes.n = '/nodes';
         if (routes[lower]) {
           e.preventDefault();

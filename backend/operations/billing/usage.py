@@ -58,32 +58,21 @@ def user_daily_series(db: Session, user_id: int, days: int = 14) -> list[dict]:
     return [{"day": d, "bytes": have.get(d, 0)} for d in wanted]
 
 
-def top_users(db: Session, days: int = 7, limit: int = 5, owner: str | None = None) -> list[dict]:
+def top_users(db: Session, days: int = 7, limit: int = 5) -> list[dict]:
     """Top users by billed bytes over the last N days (UTC)."""
     if not _table_ready:
         ensure_daily_table(db)
     days = max(1, min(int(days or 7), 90))
     limit = max(1, min(int(limit or 5), 25))
     start = (dt.datetime.now(dt.UTC).date() - dt.timedelta(days=days - 1)).strftime("%Y-%m-%d")
-    if owner is None:
-        rows = db.execute(
-            text(
-                "SELECT u.name, SUM(d.bytes) AS b FROM user_traffic_daily d "
-                "JOIN users u ON u.id = d.user_id "
-                "WHERE d.day >= :start GROUP BY u.name ORDER BY b DESC LIMIT :limit"
-            ),
-            {"start": start, "limit": limit},
-        ).fetchall()
-    else:
-        rows = db.execute(
-            text(
-                "SELECT u.name, SUM(d.bytes) AS b FROM user_traffic_daily d "
-                "JOIN users u ON u.id = d.user_id "
-                "WHERE d.day >= :start AND u.owner = :owner "
-                "GROUP BY u.name ORDER BY b DESC LIMIT :limit"
-            ),
-            {"start": start, "limit": limit, "owner": owner},
-        ).fetchall()
+    rows = db.execute(
+        text(
+            "SELECT u.name, SUM(d.bytes) AS b FROM user_traffic_daily d "
+            "JOIN users u ON u.id = d.user_id "
+            "WHERE d.day >= :start GROUP BY u.name ORDER BY b DESC LIMIT :limit"
+        ),
+        {"start": start, "limit": limit},
+    ).fetchall()
     return [{"name": r[0], "bytes": int(r[1])} for r in rows]
 
 

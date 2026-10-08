@@ -37,8 +37,6 @@ def _load_settings():
 
 def _wizard_pending(actor: Actor) -> bool:
     """True when the owner has a Telegram id but has not finished setup."""
-    if actor.role != "owner":
-        return False
     db, settings = _load_settings()
     if settings is None:
         return False

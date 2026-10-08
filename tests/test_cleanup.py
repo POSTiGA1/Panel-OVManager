@@ -33,9 +33,10 @@ def _owner_headers() -> dict:
 
 
 def _admin_headers() -> dict:
+    from conftest import create_admin
+
     from backend.auth.sessions import create_session
     from backend.db.engine import SessionLocal
-    from conftest import create_admin
 
     create_admin(_ADMIN)
     db = SessionLocal()
@@ -56,7 +57,6 @@ def _seed(name: str, *, expiry: date, active: bool = True, used: int = 0, last_o
             name=name,
             expiry_date=expiry,
             is_active=active,
-            owner=config.ADMIN_USERNAME,
             total=1024,
             used=used,
             last_online=last_online,
@@ -192,9 +192,7 @@ def test_run_deletes_only_matching_set():
         # usage history went with the deleted user
         db = SessionLocal()
         try:
-            left = db.execute(
-                text("SELECT COUNT(*) FROM user_traffic_daily WHERE user_id = :u"), {"u": old_id}
-            ).scalar()
+            left = db.execute(text("SELECT COUNT(*) FROM user_traffic_daily WHERE user_id = :u"), {"u": old_id}).scalar()
         finally:
             db.close()
         assert int(left or 0) == 0
@@ -256,9 +254,7 @@ def test_reset_all_zeroes_usage():
 
         db = SessionLocal()
         try:
-            row = db.execute(
-                text("SELECT used, last_node_usage, node_usage FROM users WHERE name = :n"), {"n": seed}
-            ).fetchone()
+            row = db.execute(text("SELECT used, last_node_usage, node_usage FROM users WHERE name = :n"), {"n": seed}).fetchone()
         finally:
             db.close()
         assert int(row[0]) == 0 and int(row[1]) == 0 and row[2] == "{}"
@@ -290,9 +286,7 @@ def test_purge_drops_only_old_daily_rows():
 
         s = SL()
         try:
-            return [r[0] for r in s.execute(
-                text("SELECT day FROM user_traffic_daily WHERE user_id = :u"), {"u": uid}
-            ).fetchall()]
+            return [r[0] for r in s.execute(text("SELECT day FROM user_traffic_daily WHERE user_id = :u"), {"u": uid}).fetchall()]
         finally:
             s.close()
 

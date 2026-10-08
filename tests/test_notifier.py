@@ -50,7 +50,6 @@ def nt_user(name, *, expiry=None, total=None, used=0, active=True):
         total=total,
         used=used,
         is_active=active,
-        owner="owner",
     )
 
 

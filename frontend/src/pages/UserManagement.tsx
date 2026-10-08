@@ -113,9 +113,15 @@ const UserManagement = () => {
 
   const fetchMyDefaults = useCallback(async () => {
     try {
-      const res = await apiClient.get('/admin/me/defaults');
-      const data = res.data?.data || null;
-      if (data?.effective) setMyDefaults(data.effective);
+      const res = await apiClient.get('/server/settings');
+      const data = res.data?.data || res.data;
+      if (data?.default_days) {
+        setMyDefaults({
+          days: data.default_days,
+          traffic_gb: data.default_traffic_gb,
+          max_users: data.default_max_users,
+        });
+      }
     } catch { /* fall back to the global defaults below */ }
   }, []);
 
@@ -198,7 +204,7 @@ const UserManagement = () => {
     const term = searchTerm.trim().toLowerCase();
     return users.filter((user) => {
       if (term) {
-        const hay = `${user.name || ''} ${user.tag || ''} ${user.owner || ''}`.toLowerCase();
+        const hay = `${user.name || ''} ${user.tag || ''}`.toLowerCase();
         if (!hay.includes(term)) return false;
       }
       const remaining = daysUntil(user.expiry_date);
@@ -222,7 +228,6 @@ const UserManagement = () => {
         case 'total': return u.total == null ? Infinity : Number(u.total);
         case 'active_connections': return Number(u.active_connections || 0);
         case 'last_online': return u.last_online || '';
-        case 'owner': return (u.owner || '').toLowerCase();
         case 'status': return statusOf(u);
         default: return u[key];
       }
@@ -502,8 +507,6 @@ const UserManagement = () => {
                 {u.name}
                 {u.tag && <span className="dt-tag">{u.tag}</span>}
               </span>
-              <br />
-              <span className="dt-cell-sub">{u.owner || '—'}</span>
             </span>
           </span>
         </button>

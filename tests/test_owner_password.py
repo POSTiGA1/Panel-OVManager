@@ -74,7 +74,7 @@ def test_admin_without_a_password_cannot_log_in():
 
     db = SessionLocal()
     try:
-        db.add(Admin(username="no-password-admin", password="", disabled=False))
+        db.add(Admin(username="no-password-admin", password=""))
         db.commit()
         assert auth_mod.authenticate_user(db, "no-password-admin", "") is None
         assert auth_mod.authenticate_user(db, "no-password-admin", "anything") is None
@@ -84,7 +84,7 @@ def test_admin_without_a_password_cannot_log_in():
         db.close()
 
 
-def test_disabled_owner_cannot_log_in():
+def test_owner_without_a_password_cannot_log_in():
     from backend.auth import auth as auth_mod
     from backend.db.engine import SessionLocal
     from backend.db.models import Admin
@@ -93,12 +93,13 @@ def test_disabled_owner_cannot_log_in():
     db = SessionLocal()
     try:
         row = db.query(Admin).filter(Admin.username == owner).first()
-        row.disabled = True
+        original = row.password
+        row.password = ""
         db.commit()
         assert auth_mod.authenticate_user(db, owner, "a-strong-password-123") is None
     finally:
         row = db.query(Admin).filter(Admin.username == owner).first()
-        row.disabled = False
+        row.password = original
         db.commit()
         db.close()
 
@@ -113,7 +114,7 @@ def test_v16_migration_imports_the_env_hash(monkeypatch):
     owner = "migrated-owner"
     db = SessionLocal()
     try:
-        db.add(Admin(username=owner, password="", disabled=False))
+        db.add(Admin(username=owner, password=""))
         db.commit()
 
         monkeypatch.setattr(panel_config, "ADMIN_USERNAME", owner)
@@ -141,7 +142,7 @@ def test_v16_migration_never_overwrites_an_existing_hash(monkeypatch):
     existing = hash_password("already-set-password-1")
     db = SessionLocal()
     try:
-        db.add(Admin(username=owner, password=existing, disabled=False))
+        db.add(Admin(username=owner, password=existing))
         db.commit()
 
         monkeypatch.setattr(panel_config, "ADMIN_USERNAME", owner)
@@ -168,7 +169,7 @@ def test_v16_migration_is_a_noop_without_a_usable_hash(monkeypatch, env_hash):
     owner = "unimportable-owner"
     db = SessionLocal()
     try:
-        db.add(Admin(username=owner, password="", disabled=False))
+        db.add(Admin(username=owner, password=""))
         db.commit()
 
         monkeypatch.setattr(panel_config, "ADMIN_USERNAME", owner)

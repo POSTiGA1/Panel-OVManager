@@ -57,7 +57,6 @@ def seeded_users(db_session):
             User(
                 uuid=f"uuid-{name}",
                 name=name,
-                owner="owner1",
                 max_logins=1,
                 expiry_date=dt.date(2030, 1, 1),
                 is_active=True,

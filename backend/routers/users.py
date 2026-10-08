@@ -26,7 +26,6 @@ from backend.node.requests import node_client, panel_id_for
 from backend.operations.observability import live as live_ops
 from backend.operations.observability.audit import log_event
 from backend.schema import CreateUser, ResponseModel, StatusToggle, UpdateUser, Users
-from backend.utils.like import escape_like
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -47,7 +46,6 @@ def _snapshot_user(u: User) -> dict:
         "max_logins": u.max_logins,
         "expiry_date": u.expiry_date.isoformat() if u.expiry_date else None,
         "is_active": u.is_active,
-        "owner": u.owner,
     }
 
 
@@ -61,28 +59,8 @@ def _remember_deleted(u: User) -> None:
 
 
 @router.get("/next-username", response_model=ResponseModel)
-async def get_next_username(
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
-):
-    admin = crud.get_admin_by_username(db, username=user.get("username"))
-    prefix = admin.username_prefix if admin else None
-    if not prefix:
-        return ResponseModel(success=False, msg="No username prefix configured for this admin")
-
-    escaped = escape_like(prefix)
-    existing = db.query(User.name).filter(User.name.like(f"{escaped}%", escape="\\")).limit(100_000).all()
-    taken = {n[0] for n in existing}
-
-    i = 1
-    while f"{prefix}{i}" in taken:
-        i += 1
-
-    return ResponseModel(
-        success=True,
-        msg="Next username generated",
-        data={"username": f"{prefix}{i}"},
-    )
+async def get_next_username(user: dict = Depends(get_current_user)):
+    return ResponseModel(success=False, msg="No username prefix configured")
 
 
 @router.get("/traffic/top", response_model=ResponseModel)
@@ -92,11 +70,10 @@ async def top_traffic_users(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    """Top users by billed bytes over the last N days (admins: own users)."""
+    """Top users by billed bytes over the last N days."""
     from backend.operations.billing.usage import top_users
 
-    owner = None if user.get("type") == "owner" else user.get("username")
-    return ResponseModel(success=True, msg="Top traffic users retrieved", data=top_users(db, days=days, limit=limit, owner=owner))
+    return ResponseModel(success=True, msg="Top traffic users retrieved", data=top_users(db, days=days, limit=limit))
 
 
 @router.get("/{uuid}/traffic", response_model=ResponseModel)
@@ -179,20 +156,11 @@ async def get_all_users(
         item["last_online"] = db_user.last_online.isoformat() if db_user.last_online else None
         return item
 
-    if user["type"] == "owner":
-        if server_filter:
-            page_users, total = crud.get_users_page(db, search=needle, page=page, page_size=page_size)
-        else:
-            page_users = crud.get_all_users(db)
-            total = len(page_users)
-    elif user["type"] == "admin":
-        if server_filter:
-            page_users, total = crud.get_users_page(db, owner=user["username"], search=needle, page=page, page_size=page_size)
-        else:
-            page_users = crud.get_users_by_admin(db, admin_username=user["username"])
-            total = len(page_users)
+    if server_filter:
+        page_users, total = crud.get_users_page(db, search=needle, page=page, page_size=page_size)
     else:
-        return ResponseModel(success=False, msg="Unauthorized access")
+        page_users = crud.get_all_users(db)
+        total = len(page_users)
 
     users_list = [serialize(u) for u in page_users]
     return ResponseModel(
@@ -234,8 +202,7 @@ async def create_user(
     if check_user is not None:
         return ResponseModel(success=False, msg="User with this name already exists", data=None)
 
-    owner = user["username"]
-    new_user = crud.create_user(db, request, owner)
+    new_user = crud.create_user(db, request)
 
     log_event(db, "user.create", actor=user.get("username"), target=new_user.name, detail="User created")
     live_ops.publish("users", {"op": "create"})
@@ -340,7 +307,7 @@ async def delete_user(uuid: str, db: Session = Depends(get_db), user: dict = Dep
     if db_user is None:
         return ResponseModel(success=False, msg="User not found", data=None)
     require_user_access(db_user, user)
-    if crud.count_users(db, owner=user["username"]) <= 1:
+    if crud.count_users(db) <= 1:
         return ResponseModel(
             success=False,
             msg="You must keep at least one user — create another before deleting this one",
@@ -371,8 +338,6 @@ async def restore_user(uuid: str, db: Session = Depends(get_db), user: dict = De
     if not entry or (_time.monotonic() - entry[0]) > _DELETED_TTL:
         return ResponseModel(success=False, msg="Undo window expired — user can no longer be restored", data=None)
     snap = entry[1]
-    if user.get("type") != "owner" and snap.get("owner") != user.get("username"):
-        return ResponseModel(success=False, msg="You do not have permission to restore this user", data=None)
     if crud.get_user_by_uuid(db, uuid) is not None:
         _deleted_users.pop(uuid, None)
         return ResponseModel(success=False, msg="User already exists", data=None)
@@ -406,13 +371,11 @@ async def extend_user(
 ):
     """Extend one user's expiry and/or add traffic quota.
 
-    Admins may only touch their own users — a foreign UUID is a 404 so
-    tenancy is not leaked. Both days and bytes of 0 is a 422.
+    Unknown UUIDs are a 404. Both days and bytes of 0 is a 422.
     """
     if payload.days == 0 and payload.bytes == 0:
         raise HTTPException(status_code=422, detail="days or bytes must be greater than 0")
-    owner = None if user["type"] == "owner" else user["username"]
-    updated = crud.adjust_user(db, uuid, days=payload.days, add_bytes=payload.bytes, owner=owner)
+    updated = crud.adjust_user(db, uuid, days=payload.days, add_bytes=payload.bytes)
     if updated is None:
         raise HTTPException(status_code=404, detail="User not found")
     log_event(

@@ -88,7 +88,7 @@ async def show_user(update: Update, context: ContextTypes.DEFAULT_TYPE, actor: A
     await edit_or_reply(
         update,
         user_card(user, sub_url=sub, lang=lang),
-        reply_markup=user_actions(user, is_owner=actor.role == "owner", lang=lang),
+        reply_markup=user_actions(user, is_owner=True, lang=lang),
     )
 
 

@@ -128,10 +128,9 @@ def _ensure_schema(_disable_urlpath_for_tests):  # pylint: disable=redefined-out
         owner = (config.ADMIN_USERNAME or "admin").strip()
         row = db.query(Admin).filter(Admin.username == owner).first()
         if row is None:
-            db.add(Admin(username=owner, password=hash_password(TEST_OWNER_PASSWORD), disabled=False, is_owner=True))
+            db.add(Admin(username=owner, password=hash_password(TEST_OWNER_PASSWORD), is_owner=True))
         else:
             row.password = hash_password(TEST_OWNER_PASSWORD)
-            row.disabled = False
             row.is_owner = True
         db.commit()
     finally:
@@ -213,14 +212,15 @@ def hold_worker_lock():
 
 def create_admin(username: str) -> None:
     """Create a throwaway admin row, if one is not already there."""
-    from backend.db import crud
+    from backend.auth.hash import hash_password
     from backend.db.engine import SessionLocal
-    from backend.schema import AdminCreate
+    from backend.db.models import Admin
 
     db = SessionLocal()
     try:
-        if crud.get_admin_by_username(db, username) is None:
-            crud.create_admin(db, AdminCreate(username=username, password=f"pw-{username}-12345"))
+        if db.query(Admin).filter(Admin.username == username).first() is None:
+            db.add(Admin(username=username, password=hash_password(f"pw-{username}-12345")))
+            db.commit()
     finally:
         db.close()
 
@@ -228,15 +228,16 @@ def create_admin(username: str) -> None:
 def cleanup_admin(username: str) -> None:
     """Remove an admin row and every session belonging to it."""
     from backend.auth.sessions import revoke_user_sessions
-    from backend.db import crud
     from backend.db.engine import SessionLocal
+    from backend.db.models import Admin
 
     db = SessionLocal()
     try:
         revoke_user_sessions(db, username)
-        admin = crud.get_admin_by_username(db, username)
+        admin = db.query(Admin).filter(Admin.username == username).first()
         if admin is not None:
-            crud.delete_admin(db, admin)
+            db.delete(admin)
+            db.commit()
     finally:
         db.close()
 

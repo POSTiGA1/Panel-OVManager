@@ -1,15 +1,11 @@
 """One tenancy rule, one place: backend/auth/authz.py.
 
-The rule the whole panel relies on — an admin may touch only their own users,
-the owner may touch everything — used to be written out by hand in the users,
-node and health routers. Divergence between those copies is a silent privilege
-bug, so the shared helper is pinned here.
+Single-admin cut: there is one tenant, so both helpers pass through. The
+call sites keep their 404-before-check order; what is pinned here is that
+neither helper ever refuses or scopes a signed-in panel user again.
 """
 
 from types import SimpleNamespace
-
-import pytest
-from fastapi import HTTPException
 
 from backend.auth.authz import owned_by, require_user_access
 
@@ -22,25 +18,16 @@ def test_owner_may_access_any_user():
     require_user_access(_user("someone-else"), {"type": "owner", "username": "boss"})
 
 
-def test_admin_may_access_their_own_user():
-    require_user_access(_user("alice"), {"type": "admin", "username": "alice"})
+def test_admin_may_access_any_user():
+    require_user_access(_user("someone-else"), {"type": "admin", "username": "alice"})
 
 
-def test_admin_is_refused_another_admins_user():
-    with pytest.raises(HTTPException) as exc:
-        require_user_access(_user("bob"), {"type": "admin", "username": "alice"})
-    assert exc.value.status_code == 403
+def test_a_blank_owner_is_still_accessible():
+    require_user_access(_user(""), {"type": "admin", "username": "alice"})
+    require_user_access(_user("alice"), {"type": "admin", "username": ""})
 
 
-def test_a_blank_owner_never_matches():
-    """A NULL/empty owner must not become accessible to a blank username."""
-    with pytest.raises(HTTPException):
-        require_user_access(_user(""), {"type": "admin", "username": "alice"})
-    with pytest.raises(HTTPException):
-        require_user_access(_user("alice"), {"type": "admin", "username": ""})
-
-
-def test_owned_by_adds_no_filter_for_the_owner():
+def test_owned_by_never_filters():
     state = {"filtered": False}
 
     class FakeQuery:
@@ -48,17 +35,7 @@ def test_owned_by_adds_no_filter_for_the_owner():
             state["filtered"] = True
             return self
 
-    owned_by(FakeQuery(), {"type": "owner", "username": "boss"})
-    assert state["filtered"] is False, "the owner must see every user"
-
-
-def test_owned_by_scopes_the_query_for_an_admin():
-    seen = {}
-
-    class FakeQuery:
-        def filter(self, expr):
-            seen["expr"] = str(expr)
-            return self
-
-    owned_by(FakeQuery(), {"type": "admin", "username": "alice"})
-    assert "owner" in seen["expr"]
+    for user in ({"type": "owner", "username": "boss"}, {"type": "admin", "username": "alice"}):
+        query = FakeQuery()
+        assert owned_by(query, user) is query
+    assert state["filtered"] is False, "there is one tenant — every query stays unscoped"

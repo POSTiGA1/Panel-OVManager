@@ -66,7 +66,6 @@ def dead_node_and_user():
         row = User(
             uuid=str(_uuid.uuid4()),
             name=user_name,
-            owner=config.ADMIN_USERNAME,
             expiry_date=dt.date(2030, 1, 1),
             total=10 * 1024**3,
             used=0,

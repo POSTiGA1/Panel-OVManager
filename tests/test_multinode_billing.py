@@ -30,7 +30,6 @@ def user_row():
             used=0,
             total=0,
             expiry_date=date(2030, 1, 1),
-            owner="n",
             node_usage='{"n1": {"total": 100}, "n2": {"total": 200}}',
         )
     )

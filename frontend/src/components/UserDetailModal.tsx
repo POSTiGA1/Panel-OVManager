@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   FiEdit2, FiActivity, FiDownload, FiCopy, FiCheck, FiWifi, FiHardDrive,
-  FiClock, FiUsers, FiUserX, FiUserCheck, FiRefreshCw, FiTrash2,
+  FiClock, FiUserX, FiUserCheck, FiRefreshCw, FiTrash2,
 } from 'react-icons/fi';
 import Modal from './Modal';
 import { Badge, Button } from './ui';
@@ -174,13 +174,6 @@ const UserDetailModal = ({ user, isOpen, onClose, subscriptionLink, onEdit, onSe
             <div>
               <dt className="ud-label">{t('th_lastOnline')}</dt>
               <dd className="ud-value">{user.last_online ? fmtRelative(user.last_online) : t('never', 'Never')}</dd>
-            </div>
-          </div>
-          <div className="ud-cell">
-            <span className="ud-ico" aria-hidden="true"><FiUsers /></span>
-            <div>
-              <dt className="ud-label">{t('th_owner')}</dt>
-              <dd className="ud-value">{user.owner || '—'}</dd>
             </div>
           </div>
         </dl>

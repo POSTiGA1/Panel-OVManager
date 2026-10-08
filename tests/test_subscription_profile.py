@@ -153,7 +153,6 @@ def test_spf_page_renders_profile_and_omits_when_empty(spf_owner, spf_profile_se
         total=None,
         used=0,
         is_active=True,
-        owner="owner",
     )
     db.add(user)
     db.commit()

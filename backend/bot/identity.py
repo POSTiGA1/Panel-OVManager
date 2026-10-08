@@ -76,10 +76,6 @@ def _resolve_local(telegram_id: int) -> Actor | None:
         if owner_id and int(owner_id) == telegram_id:
             token = _mint_local(panel.ADMIN_USERNAME, "owner")
             return Actor(telegram_id, panel.ADMIN_USERNAME, "owner", token) if token else None
-        admin = crud.get_admin_by_telegram_id(db, telegram_id)
-        if admin and not admin.disabled:
-            token = _mint_local(admin.username, "admin")
-            return Actor(telegram_id, admin.username, "admin", token) if token else None
     except Exception as exc:
         log.warning("Local identity lookup failed: %s", exc)
     finally:
@@ -122,12 +118,6 @@ async def _resolve_remote(telegram_id: int) -> Actor | None:
     if int(settings.get("owner_telegram_id") or 0) == telegram_id:
         username = config.api_username or "owner"
         return Actor(telegram_id, username, "owner", token)
-    for admin in await panel.get_admins():
-        if int(admin.get("telegram_id") or 0) != telegram_id:
-            continue
-        if admin.get("disabled"):
-            return None
-        return Actor(telegram_id, admin.get("username") or "admin", "admin", token)
     return None
 
 

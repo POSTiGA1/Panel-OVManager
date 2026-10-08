@@ -125,7 +125,6 @@ def test_ue_threshold_check_records_transitions_not_ticks(ue_db, monkeypatch):
             name="soon",
             expiry_date=dt.datetime.now(dt.UTC).date() + timedelta(days=2),
             is_active=True,
-            owner="owner",
         )
     )
     ue_db.commit()

@@ -1,4 +1,4 @@
-"""Access-control regression tests: cross-tenant isolation, reserved URL
+"""Access-control regression tests: single-tenant pass-through, reserved URL
 paths, audit-feed scoping, and revocation on the mlogin JWT path."""
 
 import datetime as dt
@@ -42,12 +42,15 @@ def _ensure_schema():
 def _ensure_admin(username: str) -> None:
     from backend.db import crud
     from backend.db.engine import SessionLocal
-    from backend.schema import AdminCreate
 
     db = SessionLocal()
     try:
         if crud.get_admin_by_username(db, username) is None:
-            crud.create_admin(db, AdminCreate(username=username, password=f"pw-{username}-12345"))
+            from backend.auth.hash import hash_password
+            from backend.db.models import Admin
+
+            db.add(Admin(username=username, password=hash_password(f"pw-{username}-12345")))
+            db.commit()
     finally:
         db.close()
 
@@ -80,7 +83,7 @@ def _expiry_of(uuid: str) -> dt.date:
         db.close()
 
 
-def test_extend_admin_cannot_touch_other_tenants_users():
+def test_extend_is_allowed_for_every_signed_in_panel_user():
     _ensure_schema()
     _ensure_admin("ac_admin_extend")
     admin_uuid = _ensure_user("ac_extend_own_user", "ac_admin_extend")
@@ -103,8 +106,8 @@ def test_extend_admin_cannot_touch_other_tenants_users():
         json={"days": 10},
         headers=_token("ac_admin_extend", "admin"),
     )
-    assert resp.status_code == 404
-    assert _expiry_of(other_uuid) == before_other  # untouched
+    assert resp.status_code == 200
+    assert _expiry_of(other_uuid) == before_other + dt.timedelta(days=10)
 
 
 def test_extend_owner_can_touch_everyone():
@@ -145,7 +148,7 @@ def test_list_users_returns_full_set_by_default():
     assert data["total"] >= 3
 
 
-def test_restore_rejects_cross_tenant_and_allows_owner():
+def test_restore_works_for_admin_and_owner():
     _ensure_schema()
     _ensure_admin("ac_admin_restore")
     uuid = _ensure_user("ac_restore_user", config.ADMIN_USERNAME)
@@ -156,7 +159,10 @@ def test_restore_rejects_cross_tenant_and_allows_owner():
 
     resp = client.post(f"/api/users/{uuid}/restore", headers=_token("ac_admin_restore", "admin"))
     assert resp.status_code == 200
-    assert resp.json()["success"] is False
+    assert resp.json()["success"] is True
+
+    resp = client.delete(f"/api/users/{uuid}", headers=_owner_headers())
+    assert resp.status_code == 200 and resp.json()["success"]
 
     resp = client.post(f"/api/users/{uuid}/restore", headers=_owner_headers())
     assert resp.status_code == 200 and resp.json()["success"]
@@ -246,33 +252,6 @@ def test_failed_login_is_audited():
     try:
         fails = [e for e in recent_events(db, limit=50) if e["action"] == "auth.login_fail"]
         assert any(e["actor"] == "ghost_login_xyz" and e["target"] for e in fails)
-    finally:
-        db.close()
-
-
-def test_admin_lifecycle_is_audited():
-    """admin.create/update/delete land in the audit trail with the actor."""
-    _ensure_schema()
-    client = TestClient(api)
-    name = "ac_audit_admin"
-    headers = _owner_headers()
-    client.delete(f"/api/admin/{name}", headers=headers)
-    resp = client.post("/api/admin/", json={"username": name, "password": "pw-ac-audit-12345"}, headers=headers)
-    assert resp.status_code == 200, resp.text
-    resp = client.put("/api/admin/", json={"username": name, "password": "pw-ac-audit-67890"}, headers=headers)
-    assert resp.status_code == 200, resp.text
-    resp = client.delete(f"/api/admin/{name}", headers=headers)
-    assert resp.status_code == 200, resp.text
-
-    from backend.db.engine import SessionLocal
-    from backend.operations.observability.audit import recent_events
-
-    db = SessionLocal()
-    try:
-        got = {(e["action"], e["target"]) for e in recent_events(db, limit=100) if e["target"] == name}
-        assert ("admin.create", name) in got
-        assert ("admin.update", name) in got
-        assert ("admin.delete", name) in got
     finally:
         db.close()
 

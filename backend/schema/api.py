@@ -106,7 +106,6 @@ class Users(BaseModel):
     used: int | None = None
     max_logins: int = 1
     expiry_date: date
-    owner: str
     uuid: str
     last_online: str | None = None
     tag: str | None = None

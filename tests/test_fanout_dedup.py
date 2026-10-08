@@ -50,7 +50,6 @@ def _seed(node_name="dup_node", user_name="dup_user"):
             user = User(
                 uuid=str(_uuid.uuid4()),
                 name=user_name,
-                owner="owner",
                 expiry_date=__import__("datetime").date(2030, 1, 1),
                 max_logins=1,
                 is_active=True,

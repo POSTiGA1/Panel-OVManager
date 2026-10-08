@@ -84,7 +84,6 @@ def test_top_users_sums_and_orders():
             u = User(
                 uuid=str(_uuid.uuid4()),
                 name=f"{name}_{_uuid.uuid4().hex[:6]}",
-                owner="owner",
                 expiry_date=dt.date(2030, 1, 1),
             )
             db.add(u)
@@ -99,7 +98,6 @@ def test_top_users_sums_and_orders():
         a = next(t for t in top if t["name"].startswith("tt_top_a"))
         assert a["bytes"] == 100
         assert top.index(b) < top.index(a), "ordered desc"
-        assert uh.top_users(db, days=7, limit=5, owner="nobody") == []
     finally:
         for uid in ids:
             db.query(User).filter(User.id == uid).delete()

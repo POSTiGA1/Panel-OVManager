@@ -13,7 +13,7 @@ from backend.bot.ui import answer, edit_or_reply
 
 
 def _welcome(actor: Actor, lang: str) -> str:
-    role = t(lang, "role_owner") if actor.role == "owner" else t(lang, "role_operator")
+    role = t(lang, "role_owner")
     return t(lang, "welcome", role=esc(role), username=esc(actor.username))
 
 
@@ -23,7 +23,7 @@ async def show_home(update: Update, context: ContextTypes.DEFAULT_TYPE, actor: A
         if actor is None:
             return
     lang = lang_of(update, context)
-    is_owner = actor.role == "owner"
+    is_owner = True
     clear_flow(context)
     text = _welcome(actor, lang)
     markup = home_actions(lang=lang, is_owner=is_owner)
@@ -69,7 +69,7 @@ async def apply_language(update: Update, context: ContextTypes.DEFAULT_TYPE, cod
         return
     message = update.effective_message
     if message:
-        is_owner = actor.role == "owner"
+        is_owner = True
         await message.reply_text(
             t(lang, "lang_set", name=LANG_NAMES.get(lang, lang)),
             reply_markup=main_menu(lang=lang, is_owner=is_owner),

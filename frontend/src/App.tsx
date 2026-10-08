@@ -16,7 +16,6 @@ const loadUsers = () => import('./pages/UserManagement');
 const loadNodes = () => import('./pages/NodeManagement');
 const loadSettings = () => import('./pages/Settings');
 const loadAudit = () => import('./pages/AuditLog');
-const loadAdmins = () => import('./pages/AdminManagement');
 const loadSetup = () => import('./pages/SetupWizard');
 
 const LoginPage = lazy(loadLogin);
@@ -27,7 +26,6 @@ const UserManagement = lazy(loadUsers);
 const NodeManagement = lazy(loadNodes);
 const Settings = lazy(loadSettings);
 const AuditLog = lazy(loadAudit);
-const AdminManagement = lazy(loadAdmins);
 const SetupWizard = lazy(loadSetup);
 
 const link = document.createElement('link');
@@ -60,7 +58,6 @@ function useRoutePrefetch(isAuthenticated: boolean, userRole: string | null) {
 
     const handle = idle(async () => {
       const queue: Array<() => Promise<unknown>> = [loadUsers, loadNodes, loadSettings];
-      if (userRole === 'owner') queue.push(loadAdmins);
       for (const load of queue) {
         try {
           await load();
@@ -138,7 +135,6 @@ function App({ onReady }: { onReady?: () => void }) {
             <Route path="users" element={<Page name="users"><UserManagement /></Page>} />
             {userRole === 'owner' && <Route path="nodes" element={<Page name="nodes"><NodeManagement /></Page>} />}
             {userRole === 'owner' && <Route path="audit" element={<Page name="audit"><AuditLog /></Page>} />}
-            {userRole === 'owner' && <Route path="admins" element={<Page name="admins"><AdminManagement /></Page>} />}
             <Route path="settings" element={<Page name="settings"><Settings /></Page>} />
           </Route>
           <Route path="*" element={<Navigate to={isAuthenticated ? "/" : "/login"} />} />

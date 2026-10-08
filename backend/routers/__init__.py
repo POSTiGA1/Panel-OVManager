@@ -1,6 +1,5 @@
 from backend.auth.auth import router as login_router
 
-from .admins import router as admin_router
 from .health import router as health_router
 from .maintenance import router as maintenance_router
 from .node import router as node_router
@@ -20,7 +19,6 @@ all_routers = [
     user_router,
     setting_router,
     node_router,
-    admin_router,
     health_router,
     mlogin_router,
     activity_router,

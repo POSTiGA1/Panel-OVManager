@@ -55,7 +55,6 @@ def _seed():
         user = User(
             uuid=str(_uuid.uuid4()),
             name=f"slc_user_{_uuid.uuid4().hex[:8]}",
-            owner="owner",
             expiry_date=dt.date(2030, 1, 1),
             max_logins=1,
             is_active=True,

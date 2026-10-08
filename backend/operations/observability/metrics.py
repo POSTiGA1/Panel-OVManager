@@ -96,9 +96,7 @@ async def collect_metrics() -> None:
         nodes = crud.get_all_nodes(db)
         users = crud.get_all_users(db)
         pid = panel_id_for(db)
-        probed = await asyncio.gather(
-            *[_node_snapshot(node, panel_id=pid) for node in nodes], return_exceptions=True
-        )
+        probed = await asyncio.gather(*[_node_snapshot(node, panel_id=pid) for node in nodes], return_exceptions=True)
         clean = [p for p in probed if isinstance(p, tuple)]
         clean_rows = [row for row, _sessions in clean]
 

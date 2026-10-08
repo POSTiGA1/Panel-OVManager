@@ -20,7 +20,6 @@ class User(Base):
     max_logins: Mapped[int] = mapped_column(default=1, nullable=False)
     expiry_date: Mapped[date] = mapped_column()
     is_active: Mapped[bool] = mapped_column(default=True)
-    owner: Mapped[str] = mapped_column(nullable=False)
     last_online: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     tag: Mapped[str] = mapped_column(nullable=True, default=None)
 
@@ -32,14 +31,9 @@ class Admin(Base):
     username: Mapped[str] = mapped_column(unique=True)
     password: Mapped[str] = mapped_column()
     # Owner identity survives the owner renaming this row (name-match alone
-    # breaks after a self-rename); backfilled for the config-name row at v22.
+    # breaks after a self-rename); backfilled for the config-name row at v24.
     is_owner: Mapped[bool] = mapped_column(default=False, server_default="0")
     telegram_id: Mapped[int] = mapped_column(nullable=True, unique=True)
-    username_prefix: Mapped[str] = mapped_column(nullable=True)
-    disabled: Mapped[bool] = mapped_column(default=False, server_default="0")
-    default_days: Mapped[int | None] = mapped_column(nullable=True)
-    default_traffic_gb: Mapped[int | None] = mapped_column(nullable=True)
-    default_max_users: Mapped[int | None] = mapped_column(nullable=True)
 
 
 class AuthSession(Base):

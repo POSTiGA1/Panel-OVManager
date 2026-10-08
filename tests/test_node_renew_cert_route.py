@@ -15,7 +15,7 @@ from backend.config import config
 from backend.db import crud
 from backend.db.engine import SessionLocal
 from backend.routers import node as node_router
-from backend.schema import AdminCreate, NodeCreate
+from backend.schema import NodeCreate
 
 
 def _owner():
@@ -136,7 +136,12 @@ def test_renew_cert_requires_owner(node, monkeypatch):
     db = SessionLocal()
     try:
         username = f"renew_admin_{_uuid.uuid4().hex[:8]}"
-        crud.create_admin(db, AdminCreate(username=username, password="renew-admin-password-1"))
+        if crud.get_admin_by_username(db, username) is None:
+            from backend.auth.hash import hash_password
+            from backend.db.models import Admin
+
+            db.add(Admin(username=username, password=hash_password("renew-admin-password-1")))
+            db.commit()
         token = create_session(db, username, "admin")
     finally:
         db.close()

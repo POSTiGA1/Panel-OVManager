@@ -81,7 +81,6 @@ def test_login_diagnostics_registry_empty():
                 User(
                     uuid=str(_uuid.uuid4()),
                     name=name,
-                    owner=config.ADMIN_USERNAME,
                     expiry_date=dt.date(2030, 1, 1),
                     max_logins=1,
                     is_active=True,

@@ -143,13 +143,18 @@ class Panel:
         return data.get("username")
 
     async def user_defaults(self) -> dict | None:
-        """The caller's effective new-user plan (their override, else owner's)."""
-        result = await self.request("GET", "/admin/me/defaults")
+        """The global new-user plan from Settings."""
+        result = await self.request("GET", "/server/settings")
         if not result.get("success"):
             return None
         data = result.get("data") or {}
-        effective = data.get("effective")
-        return effective if isinstance(effective, dict) else None
+        if not isinstance(data, dict):
+            return None
+        return {
+            "days": data.get("default_days"),
+            "traffic_gb": data.get("default_traffic_gb"),
+            "max_users": data.get("default_max_users"),
+        }
 
     async def create_user(self, name: str, days: int, traffic_gb: int, max_logins: int) -> dict:
         exp = date(2099, 12, 31) if days == 0 else date.today() + timedelta(days=days)
@@ -205,13 +210,6 @@ class Panel:
         result = await self.request("GET", "/server/info")
         data = result.get("data")
         return data if isinstance(data, dict) else {}
-
-    async def get_admins(self) -> list[dict]:
-        result = await self.request("GET", "/admin/")
-        data = result.get("data")
-        if isinstance(data, list):
-            return data
-        return []
 
     async def get_sub_url(self, uuid: str) -> str | None:
         settings = await self.get_settings()

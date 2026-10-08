@@ -248,9 +248,10 @@ def test_fresh_install_seeds_owner_row_and_first_user():
         admins = [a.username for a in db.query(Admin).all()]
         users = db.query(User).all()
         assert owner in admins, "owner must exist in the admins table"
+        owner_row = db.query(Admin).filter(Admin.username == owner).first()
+        assert owner_row.is_owner is True, "the seeded row must be the owner"
         assert len(users) == 1
         seeded = users[0]
-        assert seeded.owner == owner
         assert seeded.is_active is True
         assert seeded.max_logins >= 1
         assert seeded.expiry_date is not None

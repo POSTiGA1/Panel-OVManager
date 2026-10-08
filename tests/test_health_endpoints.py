@@ -188,7 +188,7 @@ def test_setup_counts_reflect_created_rows_and_scope_admin():
         scoped = client.get("/api/health/setup", headers=_headers(admin, "admin"))
         assert scoped.status_code == 200
         scoped_body = scoped.json()
-        assert scoped_body["user_count"] == 1
+        assert scoped_body["user_count"] == owner_body["user_count"]
         assert scoped_body["node_count"] == owner_body["node_count"]
     finally:
         _cleanup_user(user)

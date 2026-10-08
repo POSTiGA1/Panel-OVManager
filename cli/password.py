@@ -130,12 +130,14 @@ def _write_owner_hash(data_dir: str, hashed: str, owner: str) -> dict:
 
     db = sessionmaker(bind=engine)()
     try:
-        row = db.query(Admin).filter(Admin.username == owner).first()
+        row = db.query(Admin).filter(Admin.is_owner.is_(True)).first()
         if row is None:
-            db.add(Admin(username=owner, password=hashed, disabled=False))
+            row = db.query(Admin).filter(Admin.username == owner).first()
+        if row is None:
+            db.add(Admin(username=owner, password=hashed, is_owner=True))
         else:
             row.password = hashed
-            row.disabled = False
+            row.is_owner = True
         db.commit()
 
         try:

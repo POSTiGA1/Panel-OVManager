@@ -36,10 +36,10 @@ def _clean_state():
     try:
         row = db.query(Admin).filter(Admin.username == config.ADMIN_USERNAME).first()
         if row is None:
-            db.add(Admin(username=config.ADMIN_USERNAME, password=hash_password("test-owner-password-123"), disabled=False))
+            db.add(Admin(username=config.ADMIN_USERNAME, password=hash_password("test-owner-password-123"), is_owner=True))
         else:
             row.password = hash_password("test-owner-password-123")
-            row.disabled = False
+            row.is_owner = True
         db.commit()
     finally:
         db.close()

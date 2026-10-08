@@ -72,20 +72,9 @@ def claim_key_path():
 
 
 def owner_is_claimed(db: Session) -> bool:
-    """True once the owner row carries a hash — a claim is then impossible.
-
-    Owner identity is the config-name row *or* any row flagged ``is_owner``
-    (the claim may have chosen another username). Other admins' passwords
-    say nothing about the owner.
-    """
-    from sqlalchemy import or_
-
-    rows = (
-        db.query(Admin)
-        .filter(or_(Admin.username == config.ADMIN_USERNAME, Admin.is_owner.is_(True)))
-        .all()
-    )
-    return any(row.password for row in rows)
+    """True once the owner row carries a hash — a claim is then impossible."""
+    row = db.query(Admin).filter(Admin.is_owner.is_(True)).first()
+    return bool(row is not None and row.password)
 
 
 def read_claim_key() -> str | None:
@@ -153,9 +142,9 @@ async def _recover_owner(payload: ClaimRequest, request: Request, db: Session):
     """Reset owner credentials with a fresh setup key (`ovm auth reset`).
 
     Same key validation as claim (400/401, rate-limit already checked by the
-    caller); on success the owner row gets the new username/password, users
-    cascade on rename, sessions are revoked, the key is consumed, and a
-    session is issued — the operator lands signed in.
+    caller); on success the owner row gets the new username/password, sessions
+    are revoked, the key is consumed, and a session is issued — the operator
+    lands signed in.
     """
     expected = read_claim_key()
     if expected is None:
@@ -168,9 +157,7 @@ async def _recover_owner(payload: ClaimRequest, request: Request, db: Session):
         _audit(db, request, "auth.recover_fail", "Bad recovery key")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="That setup key is not valid")
 
-    owner_row = db.query(Admin).filter(Admin.is_owner == True).first()  # noqa: E712
-    if owner_row is None:
-        owner_row = crud.it_is_admin(db, username=config.ADMIN_USERNAME)
+    owner_row = db.query(Admin).filter(Admin.is_owner.is_(True)).first()
     if owner_row is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -184,13 +171,8 @@ async def _recover_owner(payload: ClaimRequest, request: Request, db: Session):
             detail="An admin with this username already exists",
         )
     try:
-        if chosen != owner_row.username:
-            from backend.db.models import User as _User
-
-            db.query(_User).filter(_User.owner == owner_row.username).update({"owner": chosen})
-            owner_row.username = chosen
+        owner_row.username = chosen
         owner_row.password = hash_password(payload.password)
-        owner_row.disabled = False
         owner_row.is_owner = True
         db.commit()
         try:
@@ -240,7 +222,7 @@ async def claim_owner(payload: ClaimRequest, request: Request, db: Session = Dep
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="That claim key is not valid")
 
     chosen = (payload.username or "").strip() or config.ADMIN_USERNAME
-    row = crud.it_is_admin(db, username=config.ADMIN_USERNAME)
+    row = db.query(Admin).filter(Admin.is_owner.is_(True)).first()
     if crud.get_admin_by_username(db, username=chosen) is not None and (row is None or chosen != row.username):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -248,17 +230,11 @@ async def claim_owner(payload: ClaimRequest, request: Request, db: Session = Dep
         )
     try:
         if row is None:
-            db.add(Admin(username=chosen, password=hash_password(payload.password), disabled=False, is_owner=True))
+            db.add(Admin(username=chosen, password=hash_password(payload.password), is_owner=True))
         else:
             row.password = hash_password(payload.password)
-            row.disabled = False
             row.is_owner = True
-            if chosen != row.username:
-                row.username = chosen
-                # Users seeded under the fixed name stay with the owner.
-                from backend.db.models import User as _User
-
-                db.query(_User).filter(_User.owner == config.ADMIN_USERNAME).update({"owner": chosen})
+            row.username = chosen
         db.commit()
     except Exception as exc:
         db.rollback()

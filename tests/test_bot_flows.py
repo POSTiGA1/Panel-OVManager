@@ -274,7 +274,7 @@ async def test_delete_then_undo(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_edit_flow_owner_only_and_happy_path(monkeypatch):
+async def test_edit_flow_happy_path(monkeypatch):
     from backend.bot.handlers import edit as edit_mod
 
     class EditingPanel(FakePanel):
@@ -283,11 +283,6 @@ async def test_edit_flow_owner_only_and_happy_path(monkeypatch):
 
     monkeypatch.setattr(edit_mod, "Panel", EditingPanel)
     monkeypatch.setattr("backend.bot.handlers.users.Panel", EditingPanel)
-
-    admin = make_actor(role="admin")
-    update = make_update(callback_data="edt:u-1")
-    await edit_mod.start_edit(update, make_context(), admin, "u-1")
-    assert any(t("en", "edit_owner_only") in text for text in all_texts(update))
 
     owner = make_actor(role="owner")
     update2 = make_update(callback_data="edt:u-1")

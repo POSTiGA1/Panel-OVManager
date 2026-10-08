@@ -52,7 +52,7 @@ def _mkrow(name: str, **fields) -> str:
     try:
         row = db.query(User).filter(User.name == name).first()
         if row is None:
-            row = User(uuid=str(_uuid.uuid4()), name=name, owner=config.ADMIN_USERNAME)
+            row = User(uuid=str(_uuid.uuid4()), name=name)
             db.add(row)
         row.expiry_date = fields.get("expiry_date", dt.date(2030, 1, 1))
         row.total = fields.get("total", 10 * 1024**3)

@@ -14,16 +14,16 @@ client, and the constructor accepts it before the node row exists.
 import uuid as uuid_mod
 
 import pytest
+from conftest import TEST_OWNER_PASSWORD
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from conftest import TEST_OWNER_PASSWORD
 from backend.app import _run_migrations, api
 from backend.auth.sessions import create_session
 from backend.config import config
 from backend.db import crud
 from backend.db.engine import SessionLocal
-from backend.db.models import Admin, AuthSession, User
+from backend.db.models import Admin, User
 from backend.node.requests import NodeRequests, node_client, panel_id_for
 from backend.routers import owner_claim
 from backend.schema import NodeCreate
@@ -78,7 +78,6 @@ def _make_user(name: str, owner: str) -> None:
                 User(
                     uuid=str(uuid_mod.uuid4()),
                     name=name,
-                    owner=owner,
                     max_logins=1,
                     expiry_date=date.today() + timedelta(days=30),
                     is_active=True,
@@ -102,7 +101,7 @@ def _drop_user(name: str) -> None:
 
 
 def _restore_owner_state() -> None:
-    """Put the shared owner row (and its users) back under the config name."""
+    """Put the shared owner row back under the config name."""
     from backend.auth.hash import hash_password
 
     db = SessionLocal()
@@ -115,16 +114,13 @@ def _restore_owner_state() -> None:
                 Admin(
                     username=config.ADMIN_USERNAME,
                     password=hash_password(TEST_OWNER_PASSWORD),
-                    disabled=False,
                     is_owner=True,
                 )
             )
         else:
             if row.username != config.ADMIN_USERNAME:
-                db.query(User).filter(User.owner == row.username).update({"owner": config.ADMIN_USERNAME})
                 row.username = config.ADMIN_USERNAME
             row.password = hash_password(TEST_OWNER_PASSWORD)
-            row.disabled = False
             row.is_owner = True
         db.commit()
     finally:
@@ -347,113 +343,6 @@ def test_node_409_surfaces_the_nodes_message_without_retry(monkeypatch):
     assert envelope["msg"] == nr.conflict_msg
 
 
-# ── 5. admin rename: cascade, revoke, conflict ────────────────────────────
-
-
-def test_admin_rename_cascades_users_and_revokes_sessions():
-    from conftest import cleanup_admin, create_admin
-
-    old, new = "partf_admin_a", "partf_admin_renamed"
-    cleanup_admin(old)
-    cleanup_admin(new)
-    create_admin(old)
-    _make_user("partf_admin_a_user", old)
-    token = _token(old, "admin")
-    try:
-        resp = TestClient(api).put(
-            "/api/admin/",
-            json={"current_username": old, "username": new},
-            headers=_owner_headers(),
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["data"]["username"] == new
-
-        db = SessionLocal()
-        try:
-            user = db.query(User).filter(User.name == "partf_admin_a_user").first()
-            assert user.owner == new, "the rename must cascade to users.owner"
-            sessions = db.query(AuthSession).filter(AuthSession.username == old).count()
-            assert sessions == 0, "the renamed admin's sessions must be revoked"
-        finally:
-            db.close()
-
-        # The old token dies with the row it names.
-        resp = TestClient(api).get("/api/admin/me/defaults", headers={"Authorization": f"Bearer {token}"})
-        assert resp.status_code == 401
-    finally:
-        _drop_user("partf_admin_a_user")
-        cleanup_admin(old)
-        cleanup_admin(new)
-
-
-def test_admin_rename_conflict_is_409():
-    from conftest import cleanup_admin, create_admin
-
-    a, b = "partf_admin_c", "partf_admin_d"
-    cleanup_admin(a)
-    cleanup_admin(b)
-    create_admin(a)
-    create_admin(b)
-    try:
-        resp = TestClient(api).put(
-            "/api/admin/",
-            json={"current_username": a, "username": b},
-            headers=_owner_headers(),
-        )
-        assert resp.status_code == 409, resp.text
-        assert "already exists" in resp.json()["detail"]
-
-        db = SessionLocal()
-        try:
-            assert crud.get_admin_by_username(db, a) is not None, "a refused rename must change nothing"
-        finally:
-            db.close()
-    finally:
-        cleanup_admin(a)
-        cleanup_admin(b)
-
-
-def test_owner_can_rename_themselves_and_stays_owner():
-    _run_migrations()
-    _make_user("partf_owner_user", config.ADMIN_USERNAME)
-    client = TestClient(api)
-    try:
-        resp = client.put(
-            "/api/admin/",
-            json={"current_username": config.ADMIN_USERNAME, "username": RENAMED_OWNER},
-            headers=_owner_headers(),
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["data"]["username"] == RENAMED_OWNER
-
-        db = SessionLocal()
-        try:
-            user = db.query(User).filter(User.name == "partf_owner_user").first()
-            assert user.owner == RENAMED_OWNER, "the owner rename must cascade to users.owner"
-        finally:
-            db.close()
-
-        # The renamed owner logs in and still gets the owner role.
-        login = client.post(
-            "/api/login",
-            headers=CSRF,
-            data={"username": RENAMED_OWNER, "password": TEST_OWNER_PASSWORD},
-        )
-        assert login.status_code == 200, login.text
-        body = login.json()
-        assert body["role"] == "owner"
-        assert body["username"] == RENAMED_OWNER
-
-        settings = client.get(
-            "/api/server/settings",
-            headers={"Authorization": f"Bearer {body['access_token']}"},
-        )
-        assert settings.status_code == 200, settings.text
-        assert settings.json()["data"]["panel_id"]
-    finally:
-        _drop_user("partf_owner_user")
-
-
 # ── 6. claim with a username + verify endpoint ────────────────────────────
 
 
@@ -480,8 +369,6 @@ def test_claim_with_a_username_renames_the_owner(client, claim_key_file, unclaim
 
             assert verify_password("a-strong-password-123", row.password)
             assert crud.get_admin_by_username(db, config.ADMIN_USERNAME) is None, "the fixed name was renamed away"
-            user = db.query(User).filter(User.name == "partf_claim_user").first()
-            assert user.owner == CLAIMED_OWNER, "the claim rename must cascade to users.owner"
         finally:
             db.close()
     finally:

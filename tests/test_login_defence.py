@@ -144,23 +144,23 @@ def test_unknown_username_still_pays_for_a_verify(db_session, spy_verify):
     assert spy_verify, "an unknown username returned without attempting a verify — timing oracle"
 
 
-def test_disabled_admin_still_pays_for_a_verify(db_session, spy_verify):
+def test_second_admin_still_pays_for_a_verify(db_session, spy_verify):
     from backend.db.models import Admin
 
-    db_session.add(Admin(username="timing-disabled", password=hash_password("a-real-password-1"), disabled=True))
+    db_session.add(Admin(username="timing-second", password=hash_password("a-real-password-1")))
     db_session.commit()
     try:
-        assert auth_mod.authenticate_user(db_session, "timing-disabled", "a-real-password-1") is None
-        assert spy_verify, "a disabled admin returned without attempting a verify"
+        assert auth_mod.authenticate_user(db_session, "timing-second", "a-real-password-1") is None
+        assert spy_verify, "a non-owner admin returned without attempting a verify"
     finally:
-        db_session.query(Admin).filter(Admin.username == "timing-disabled").delete()
+        db_session.query(Admin).filter(Admin.username == "timing-second").delete()
         db_session.commit()
 
 
 def test_admin_with_no_password_still_pays_for_a_verify(db_session, spy_verify):
     from backend.db.models import Admin
 
-    db_session.add(Admin(username="timing-nopass", password="", disabled=False))
+    db_session.add(Admin(username="timing-nopass", password=""))
     db_session.commit()
     try:
         assert auth_mod.authenticate_user(db_session, "timing-nopass", "anything") is None

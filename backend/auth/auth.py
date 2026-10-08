@@ -97,15 +97,12 @@ def _waste_verify(password: str) -> None:
 def authenticate_user(db: Session, username: str, password: str):
     """Authenticate against the ``admins`` table — the only credential store.
 
-    The owner is a normal row whose username matches ``ADMIN_USERNAME``; their
-    bcrypt hash lives in the database like every other admin's, so ``.env``
-    holds no credential.
+    There is exactly one credential: the owner row, flagged ``is_owner``. Its
+    bcrypt hash lives in the database, so ``.env`` holds no credential, and a
+    leftover second-admin row never authenticates.
     """
-    admin = crud.it_is_admin(db, username=username)
-    if not admin or not admin.password:
-        _waste_verify(password)
-        return None
-    if admin.disabled:
+    admin = crud.get_admin_by_username(db, username=username)
+    if not admin or not admin.password or not admin.is_owner:
         _waste_verify(password)
         return None
     if not verify_password(password, admin.password):
@@ -118,22 +115,16 @@ def authenticate_user(db: Session, username: str, password: str):
     except Exception:
         db.rollback()
 
-    role = "owner" if username == config.ADMIN_USERNAME or bool(getattr(admin, "is_owner", False)) else "admin"
-    return {"username": admin.username, "type": role}
+    return {"username": admin.username, "type": "owner"}
 
 
 def role_is_current(db: Session, username: str, role: str) -> bool:
-    if role == "owner":
-        # Name-match first so pre-rename sessions keep working; the flag is
-        # the durable identity once the owner has renamed the account.
-        if username == config.ADMIN_USERNAME:
-            return True
-        admin = crud.get_admin_by_username(db, username=username)
-        return admin is not None and bool(getattr(admin, "is_owner", False)) and not admin.disabled
-    if role != "admin":
-        return False
     admin = crud.get_admin_by_username(db, username=username)
-    return admin is not None and not admin.disabled
+    if admin is None:
+        return False
+    if role == "owner":
+        return bool(admin.is_owner)
+    return role == "admin"
 
 
 @router.post("/login")

@@ -51,7 +51,7 @@ async def start_create(update: Update, context: ContextTypes.DEFAULT_TYPE, actor
     if message and not update.callback_query:
         await message.reply_text(
             t(lang, "create_start"),
-            reply_markup=main_menu(in_flow=True, lang=lang, is_owner=actor.role == "owner"),
+            reply_markup=main_menu(in_flow=True, lang=lang, is_owner=True),
         )
     await edit_or_reply(update, t(lang, "create_choose_plan"), reply_markup=plan_picker(lang=lang))
 

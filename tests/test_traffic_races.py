@@ -26,7 +26,6 @@ def _mkrow(name: str, used: int = 0, node_usage: str = "{}") -> int:
         row = User(
             uuid=str(_uuid.uuid4()),
             name=name,
-            owner="owner",
             expiry_date=dt.date(2030, 1, 1),
             total=10**12,
             used=used,

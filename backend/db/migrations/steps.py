@@ -115,7 +115,6 @@ def _cleanup_orphan_daily_rows(db: Session) -> None:
 def _add_lookup_indices(db: Session) -> None:
     """Add indices for columns the scheduler filters on every tick (v4)."""
     statements = (
-        "CREATE INDEX IF NOT EXISTS idx_users_owner ON users(owner)",
         "CREATE INDEX IF NOT EXISTS idx_users_expiry ON users(expiry_date)",
         "CREATE INDEX IF NOT EXISTS idx_nodes_status ON nodes(status)",
         "CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name)",
@@ -125,15 +124,12 @@ def _add_lookup_indices(db: Session) -> None:
 
 
 def _add_admin_disabled_flag(db: Session) -> None:
-    """Add ``admins.disabled`` for databases stamped before v5.
+    """Retired no-op (was: add ``admins.disabled``, v5).
 
-    Reconciliation runs only when adopting a pre-runner database, so a database
-    stamped at 4 has the table but not the column.
+    Multi-admin is gone: the single owner row carries no disable flag, so the
+    column no longer exists in the models and there is nothing to add.
     """
-    if "admins" not in table_names(db) or "disabled" in column_names(db, "admins"):
-        return
-    column = Base.metadata.tables["admins"].columns["disabled"]
-    db.execute(text(_add_column_sql("admins", column)))
+    logger.info("migrations v5: admins.disabled is retired — no-op")
 
 
 def _add_notification_flags(db: Session) -> None:
@@ -338,6 +334,36 @@ def _add_event_delivered(db: Session) -> None:
     )
 
 
+def _single_admin_schema(db: Session) -> None:
+    """Single-admin cut (v24): one owner row, multi-admin columns dropped.
+
+    Ownership lives on ``admins.is_owner`` alone, so ``users.owner`` and the
+    per-admin overrides/prefix/disable flag go away. The owner backfill runs
+    first, before the name-based lookup disappears from the code path. Every
+    guard keeps fresh, adopted and stamped databases on the same route.
+    """
+    from backend.config import config
+
+    if "admins" in table_names(db):
+        present = column_names(db, "admins")
+        if "is_owner" not in present:
+            db.execute(text("ALTER TABLE admins ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 0"))
+        owner = (config.ADMIN_USERNAME or "").strip()
+        if owner:
+            db.execute(
+                text("UPDATE admins SET is_owner = 1 WHERE username = :u AND is_owner = 0"),
+                {"u": owner},
+            )
+        for name in ("username_prefix", "disabled", "default_days", "default_traffic_gb", "default_max_users"):
+            if name in column_names(db, "admins"):
+                db.execute(text(f"ALTER TABLE admins DROP COLUMN {name}"))
+
+    if "users" in table_names(db) and "owner" in column_names(db, "users"):
+        db.execute(text("DROP INDEX IF EXISTS idx_users_owner"))
+        db.execute(text("ALTER TABLE users DROP COLUMN owner"))
+        logger.info("migrations v24: dropped multi-admin schema (single owner only)")
+
+
 STEPS: tuple[tuple[int, str, object], ...] = (
     (2, "encrypt node API keys at rest", _encrypt_node_keys),
     (3, "drop orphan daily traffic rows", _cleanup_orphan_daily_rows),
@@ -361,4 +387,5 @@ STEPS: tuple[tuple[int, str, object], ...] = (
     (21, "add panel identity (settings.panel_id)", _add_panel_id),
     (22, "add admin owner flag (admins.is_owner)", _add_admin_is_owner),
     (23, "add event delivered markers (delivered)", _add_event_delivered),
+    (24, "single-admin cut (drop multi-admin columns)", _single_admin_schema),
 )

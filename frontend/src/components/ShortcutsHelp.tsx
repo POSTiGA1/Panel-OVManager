@@ -5,7 +5,6 @@ const ROWS = (t: any, isOwner: boolean) => [
   { keys: ['g', 'd'], label: t('shortcutGoDashboard', 'Go to dashboard') },
   { keys: ['g', 'u'], label: t('shortcutGoUsers', 'Go to users') },
   ...(isOwner ? [{ keys: ['g', 'n'], label: t('shortcutGoNodes', 'Go to nodes') }] : []),
-  ...(isOwner ? [{ keys: ['g', 'a'], label: t('shortcutGoAdmins', 'Go to admins') }] : []),
   { keys: ['g', 's'], label: t('shortcutGoSettings', 'Go to settings') },
   { keys: ['/'], label: t('shortcutSearch', 'Focus search') },
   { keys: ['⌘', 'K'], label: t('shortcutPalette', 'Open command palette') },

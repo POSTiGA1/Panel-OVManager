@@ -87,6 +87,7 @@ from backend.db.migrations.steps import (
     _cleanup_orphan_daily_rows,
     _decrypt_stored_secrets,
     _encrypt_node_keys,
+    _single_admin_schema,
 )
 
 __all__ = [
@@ -117,6 +118,7 @@ __all__ = [
     "_seed_owner_and_first_user",
     "_seed_settings",
     "_seed_summary",
+    "_single_admin_schema",
     "column_names",
     "current_version",
     "ensure_extra_tables",

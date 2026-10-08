@@ -19,9 +19,6 @@ from backend.bot.ui import edit_or_reply
 
 async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, actor: Actor) -> None:
     lang = lang_of(update, context)
-    if actor.role != "owner":
-        await edit_or_reply(update, t(lang, "settings_owner_only"))
-        return
     state = t(lang, "settings_enabled") if config.bot_enabled else t(lang, "settings_disabled")
     token = t(lang, "settings_token_set") if config.token else t(lang, "settings_token_missing")
     defaults = plan_label(config.default_days, config.default_traffic_gb, config.default_max_users, lang=lang)

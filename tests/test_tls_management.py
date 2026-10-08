@@ -93,13 +93,16 @@ def _owner_headers() -> dict:
 def _ensure_admin(username: str) -> None:
     from backend.db import crud
     from backend.db.engine import SessionLocal
-    from backend.schema import AdminCreate
 
     _run_migrations()
     db = SessionLocal()
     try:
         if crud.get_admin_by_username(db, username) is None:
-            crud.create_admin(db, AdminCreate(username=username, password=f"pw-{username}-12345"))
+            from backend.auth.hash import hash_password
+            from backend.db.models import Admin
+
+            db.add(Admin(username=username, password=hash_password(f"pw-{username}-12345")))
+            db.commit()
     finally:
         db.close()
 

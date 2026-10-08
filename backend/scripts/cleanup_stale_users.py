@@ -30,12 +30,7 @@ def cleanup(apply: bool = False) -> dict:
     try:
         today = date.today()
         scanned = db.query(User).count()
-        candidates = (
-            db.query(User)
-            .filter(User.expiry_date < today, User.is_active.is_(False))
-            .order_by(User.id)
-            .all()
-        )
+        candidates = db.query(User).filter(User.expiry_date < today, User.is_active.is_(False)).order_by(User.id).all()
         usernames = [u.name for u in candidates]
         for user in candidates:
             logger.info("cleanup: expired disabled user %s (id=%s, expiry=%s)", user.name, user.id, user.expiry_date)
