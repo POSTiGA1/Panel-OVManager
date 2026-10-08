@@ -1387,7 +1387,9 @@ generate_self_signed() {
         render_ok "Certificate  $TLS_CERT  (existing — reused)"
         return 0
     fi
-    local cn; cn="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    local cn; cn="$(public_ip || true)"
+    [[ -n "$cn" ]] || cn="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    [[ -n "$cn" ]] || cn="127.0.0.1"
     openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
         -keyout "$key" \
         -out "$cert" \

@@ -79,12 +79,22 @@ def main():
         raise SystemExit(1)
 
     key, cert = _resolve_ssl_paths()
-    if key and not os.path.isfile(key):
+    if not (key and cert):
+        from backend.routers.tls import ensure_serving_pair
+
+        try:
+            key, cert = ensure_serving_pair()
+        except Exception as exc:
+            raise SystemExit(
+                f"TLS files are missing at the serving paths and a self-signed pair could not be generated: {exc}\n"
+                "The panel serves HTTPS only — fix the error above and restart."
+            ) from exc
+    if not os.path.isfile(key):
         raise SystemExit(f"SSL key file not found: {key}")
-    if cert and not os.path.isfile(cert):
+    if not os.path.isfile(cert):
         raise SystemExit(f"SSL cert file not found: {cert}")
-    if key:
-        _require_readable(key, "key")
+    _require_readable(key, "key")
+    _require_readable(cert, "cert")
     uvicorn.run(
         "backend.app:api",
         host=str(config.HOST),
@@ -96,8 +106,8 @@ def main():
         access_log=False,
         server_header=False,
         date_header=False,
-        ssl_keyfile=key or None,
-        ssl_certfile=cert or None,
+        ssl_keyfile=key,
+        ssl_certfile=cert,
         timeout_graceful_shutdown=5,
     )
 

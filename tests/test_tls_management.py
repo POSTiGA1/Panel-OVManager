@@ -270,11 +270,7 @@ def test_tls_self_signed_generates_readable_certificate(client, _managed_tls_dir
 
 def test_tls_renew_without_acme_returns_guidance(client, monkeypatch, tmp_path, _managed_tls_dir):
     monkeypatch.setattr(tls_mod, "ACME_SH", tmp_path / "missing-acme" / "acme.sh")
-
-    def _no_port_probe():
-        raise AssertionError("port 80 must not be probed when acme.sh is absent")
-
-    monkeypatch.setattr(tls_mod, "_port_80_busy", _no_port_probe)
+    monkeypatch.setattr(tls_mod, "_installer_public_ip", lambda: None)
 
     resp = client.post(
         "/api/tls/renew",
@@ -299,7 +295,6 @@ def test_automatic_certificate_stages_validates_and_activates(client, monkeypatc
 
     monkeypatch.setattr(tls_mod, "ACME_SH", tmp_path / "acme.sh")
     tls_mod.ACME_SH.write_text("stub")
-    monkeypatch.setattr(tls_mod, "_port_80_busy", lambda: False)
     key_pem, cert_pem = _make_pair("panel.example.com")
     calls = []
 

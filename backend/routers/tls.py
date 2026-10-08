@@ -24,9 +24,11 @@ import socket
 import subprocess
 import tempfile
 import threading
+import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -42,6 +44,7 @@ from backend.config import config
 from backend.data_paths import DATA_DIR
 from backend.db.crud.settings import get_settings
 from backend.db.engine import get_db
+from backend.logger import logger
 from backend.operations.observability.audit import log_event
 from backend.schema import ResponseModel
 from backend.validation import validate_domain, validate_email
@@ -78,13 +81,14 @@ class TlsSettingsUpdate(BaseModel):
 
 CERT_METHODS = ("selfsigned", "letsencrypt", "none")
 
-# DB column → .env key. An uncommented line in .env wins over the DB value.
+# API field → (DB column, .env key). An uncommented line in .env wins over the
+# DB value; cert_file/key_file are the API names, ssl_*_file the columns.
 _TLS_ENV_KEYS = {
-    "cert_file": "SSL_CERTFILE",
-    "key_file": "SSL_KEYFILE",
-    "acme_domain": "ACME_DOMAIN",
-    "acme_email": "ACME_EMAIL",
-    "cert_method": "CERT_METHOD",
+    "cert_file": ("ssl_cert_file", "SSL_CERTFILE"),
+    "key_file": ("ssl_key_file", "SSL_KEYFILE"),
+    "acme_domain": ("acme_domain", "ACME_DOMAIN"),
+    "acme_email": ("acme_email", "ACME_EMAIL"),
+    "cert_method": ("cert_method", "CERT_METHOD"),
 }
 
 
@@ -117,8 +121,8 @@ def get_tls_settings(db: Session = Depends(get_db), user: dict = Depends(require
     settings = get_settings(db)
     env_values = _env_file_values()
     fields = {}
-    for name, env_key in _TLS_ENV_KEYS.items():
-        db_value = getattr(settings, name, None)
+    for name, (column, env_key) in _TLS_ENV_KEYS.items():
+        db_value = getattr(settings, column, None)
         env_value = env_values.get(env_key) or None
         overridden = bool(env_value)
         fields[name] = {
@@ -126,6 +130,7 @@ def get_tls_settings(db: Session = Depends(get_db), user: dict = Depends(require
             "env": env_value,
             "effective": env_value if overridden else db_value,
             "overridden": overridden,
+            "source": "env" if overridden else ("db" if db_value else None),
         }
     return ResponseModel(
         success=True,
@@ -156,9 +161,9 @@ def put_tls_settings(
     email = updates.get("acme_email")
     if email and not validate_email(email):
         return ResponseModel(success=False, msg="That ACME email is not valid.", data=None)
-    for name in _TLS_ENV_KEYS:
+    for name, (column, _env_key) in _TLS_ENV_KEYS.items():
         if name in updates:
-            setattr(settings, name, updates[name] or None)
+            setattr(settings, column, updates[name] or None)
     db.commit()
     log_event(None, "tls.settings", actor=user.get("username"), detail=",".join(sorted(updates)))
     return ResponseModel(
@@ -578,6 +583,117 @@ def _detect_primary_ip() -> str:
         return "127.0.0.1"
 
 
+def _stored_public_ip() -> str | None:
+    """The literal IP address stored in ``.env``'s PUBLIC_URL, when there is one.
+
+    The only public address this host has already written down. A domain there
+    is not an address, so it does not count.
+    """
+    url = (config.PUBLIC_URL or "").strip()
+    if not url:
+        return None
+    host = urlparse(url if "://" in url else f"//{url}").hostname
+    if not host:
+        return None
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        return None
+
+
+def _installer_public_ip() -> str | None:
+    """The address install.sh's ``public_ip()`` trusts first, asked the same way.
+
+    Behind NAT no local probe can see the address the internet dials, so the
+    panel asks the same two services the installer asks — api.ipify.org, then
+    ifconfig.me — with the installer's own shape check and a short timeout.
+    """
+    for url in ("https://api.ipify.org", "https://ifconfig.me/ip"):
+        try:
+            with urllib.request.urlopen(url, timeout=3) as response:
+                text = response.read(64).decode("ascii", "ignore").strip()
+        except Exception:
+            continue
+        if text and all(char in "0123456789abcdefABCDEF.:" for char in text):
+            return text
+    return None
+
+
+def _configured_identity(db: Session | None) -> str | None:
+    """The TLS name already stored: an ``.env`` ACME_DOMAIN forces the DB value."""
+    env_domain = (_env_file_values().get("ACME_DOMAIN") or "").strip()
+    if env_domain:
+        return env_domain
+    if db is not None:
+        try:
+            domain = (getattr(get_settings(db), "acme_domain", None) or "").strip()
+        except Exception:
+            domain = ""
+        if domain:
+            return domain
+    return _stored_public_ip()
+
+
+def _primary_identity(db: Session | None = None) -> str:
+    """Name for a fresh certificate: stored first, detection last.
+
+    Order: DB TLS domain / stored public IP → installer ``public_ip()`` →
+    ``_detect_primary_ip()`` → 127.0.0.1.
+    """
+    return _configured_identity(db) or _installer_public_ip() or _detect_primary_ip()
+
+
+def _primary_ip() -> str:
+    """Address for an IP certificate request — a stored domain does not count."""
+    return _stored_public_ip() or _installer_public_ip() or _detect_primary_ip()
+
+
+def ensure_serving_pair() -> tuple[str, str]:
+    """Create a fresh self-signed pair at the serving paths when it is missing.
+
+    Boot rule: the panel serves HTTPS from ``tls_paths`` only. Files that are
+    not there — a restored database on a new host, a wiped ``/etc`` — mean a
+    new identity generated in place, with the DB record updated to match.
+    Never a plain-HTTP listener, never the DB's remembered paths.
+    """
+    key_path, cert_path = _key_path(), _cert_path()
+    if key_path.is_file() and cert_path.is_file():
+        return str(key_path), str(cert_path)
+    db: Session | None = None
+    try:
+        from backend.db.engine import SessionLocal
+
+        db = SessionLocal()
+    except Exception:
+        db = None
+    try:
+        common_name = _primary_identity(db)
+        key_pem, cert_pem = _build_self_signed(common_name)
+        with _CERTIFICATE_LOCK:
+            _atomic_write(key_path, key_pem, 0o600)
+            _atomic_write(cert_path, cert_pem, 0o644)
+            _write_meta("self-signed")
+        if db is not None:
+            try:
+                settings = get_settings(db)
+                settings.ssl_key_file = str(key_path)
+                settings.ssl_cert_file = str(cert_path)
+                settings.cert_method = "selfsigned"
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.warning("TLS: pair generated, but the settings record could not be updated", exc_info=True)
+        logger.warning(
+            "TLS: no pair at the serving paths — generated a self-signed certificate for %s at %s",
+            common_name,
+            cert_path,
+        )
+    finally:
+        if db is not None:
+            db.close()
+    return str(key_path), str(cert_path)
+
+
 def _build_self_signed(common_name: str) -> tuple[bytes, bytes]:
     """RSA 2048 / 10 years, same profile as install.sh's openssl command."""
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -615,10 +731,10 @@ def _build_self_signed(common_name: str) -> tuple[bytes, bytes]:
 
 
 @router.post("/self-signed", response_model=ResponseModel)
-def generate_self_signed(user: dict = Depends(require_owner)):
-    """Regenerate a self-signed certificate for this server's primary IP."""
+def generate_self_signed(db: Session = Depends(get_db), user: dict = Depends(require_owner)):
+    """Regenerate a self-signed certificate for this server's primary identity."""
     try:
-        common_name = _detect_primary_ip()
+        common_name = _primary_identity(db)
         key_pem, cert_pem = _build_self_signed(common_name)
         _write_managed_files(key_pem, cert_pem, "self-signed")
     except Exception as exc:
@@ -640,17 +756,6 @@ def generate_self_signed(user: dict = Depends(require_owner)):
             "common_name": common_name,
         },
     )
-
-
-def _port_80_busy() -> bool:
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        probe.bind(("0.0.0.0", 80))
-        return False
-    except OSError:
-        return True
-    finally:
-        probe.close()
 
 
 def _last_output_line(result: subprocess.CompletedProcess) -> str:
@@ -675,7 +780,7 @@ def renew_certificate(
     settings = get_settings(db)
     method = getattr(settings, "cert_method", None)
     use_ip = bool(payload.use_ip)
-    domain = _detect_primary_ip() if use_ip else (payload.domain or settings.acme_domain or "").strip()
+    domain = _primary_ip() if use_ip else (payload.domain or settings.acme_domain or "").strip()
     if not domain:
         if method == "selfsigned":
             return ResponseModel(
@@ -723,17 +828,6 @@ def renew_certificate(
                 "acme.sh is not installed on this host, so the panel cannot request a Let's Encrypt certificate. "
                 "Install it on the server (curl https://get.acme.sh | sh) and retry — or upload a certificate "
                 "issued elsewhere."
-            ),
-            data={"restart_required": False},
-        )
-    if _port_80_busy():
-        log_event(None, "tls.renew", actor=actor, detail=f"port 80 busy, domain={domain}")
-        return ResponseModel(
-            success=False,
-            msg=(
-                "Port 80 is busy, so the Let's Encrypt standalone challenge cannot run. Free port 80 (stop the "
-                "service using it, including any reverse proxy in front of the panel) and retry. You can also "
-                f"issue it on the host: ~/.acme.sh/acme.sh --issue -d {domain} --standalone."
             ),
             data={"restart_required": False},
         )
