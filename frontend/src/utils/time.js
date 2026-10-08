@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 
-import i18n from '../i18n';
+import i18n, { isRTL } from '../i18n';
 import { getDisplayTimezone } from './displayTimezone';
 
 function displayLocale() {
   const l = (i18n.language || '').toLowerCase();
-  if (l.startsWith('fa')) return 'fa-u-ca-gregory-nu-latn';
+  if (isRTL(l)) return 'fa-u-ca-gregory-nu-latn';
   if (l.startsWith('ru')) return 'ru';
   if (l.startsWith('zh')) return 'zh';
   return 'en-GB';

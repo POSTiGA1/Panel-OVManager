@@ -1,7 +1,7 @@
 import { Outlet, useLocation, Link, useNavigate } from 'react-router-dom';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { loadLanguage } from '../i18n';
+import { loadLanguage, SUPPORTED_LANGS, LANG_LABELS } from '../i18n';
 import {
   FiBell, FiMoon, FiSun, FiSearch, FiCommand, FiMonitor,
   FiCompass, FiArrowRight, FiX,
@@ -128,14 +128,6 @@ const DashboardLayout = () => {
     if (pathname.startsWith('/setup')) return t('setupTitle', 'Setup wizard');
     return t('navHome', 'Home');
   };
-
-  useEffect(() => {
-    const lang = i18n.language || 'en';
-    const dir = lang.startsWith('fa') ? 'rtl' : 'ltr';
-    document.documentElement.dir = dir;
-    document.documentElement.lang = lang;
-    localStorage.setItem('ovmanager-lang', lang);
-  }, [i18n.language]);
 
   const [, bumpTz] = useState(0);
   useEffect(() => {
@@ -394,26 +386,16 @@ const DashboardLayout = () => {
                     <LangIcon size={18} />
                   </button>
                   <div className={`lang-dropdown${langOpen ? ' open' : ''}`}>
-                    <button className={`lang-option${i18n.language === 'fa' ? ' active' : ''}`} onClick={() => { switchLanguage('fa'); setLangOpen(false); }}>
-                      <FaFlagIcon />
-                      <span>فارسی</span>
-                      {i18n.language === 'fa' && <span className="lang-check">✓</span>}
-                    </button>
-                    <button className={`lang-option${i18n.language === 'en' ? ' active' : ''}`} onClick={() => { switchLanguage('en'); setLangOpen(false); }}>
-                      <EnFlagIcon />
-                      <span>English</span>
-                      {i18n.language === 'en' && <span className="lang-check">✓</span>}
-                    </button>
-                    <button className={`lang-option${i18n.language === 'ru' ? ' active' : ''}`} onClick={() => { switchLanguage('ru'); setLangOpen(false); }}>
-                      <RuFlagIcon />
-                      <span>Русский</span>
-                      {i18n.language === 'ru' && <span className="lang-check">✓</span>}
-                    </button>
-                    <button className={`lang-option${i18n.language === 'cn' ? ' active' : ''}`} onClick={() => { switchLanguage('cn'); setLangOpen(false); }}>
-                      <ChinaFlagIcon />
-                      <span>中文</span>
-                      {i18n.language === 'cn' && <span className="lang-check">✓</span>}
-                    </button>
+                    {SUPPORTED_LANGS.map((code) => {
+                      const Flag = LANG_FLAGS[code];
+                      return (
+                        <button key={code} className={`lang-option${i18n.language === code ? ' active' : ''}`} onClick={() => { switchLanguage(code); setLangOpen(false); }}>
+                          {Flag && <Flag />}
+                          <span>{LANG_LABELS[code]}</span>
+                          {i18n.language === code && <span className="lang-check">✓</span>}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
                 <button type="button" className="icon-btn" onClick={cycleTheme} title={`${t('theme', 'Theme')}: ${themeLabel}`} aria-label={`${t('theme', 'Theme')}: ${themeLabel}`}>
@@ -532,5 +514,12 @@ const ChinaFlagIcon = () => (
     </g>
   </svg>
 );
+
+const LANG_FLAGS: Record<string, () => ReactNode> = {
+  fa: FaFlagIcon,
+  en: EnFlagIcon,
+  ru: RuFlagIcon,
+  cn: ChinaFlagIcon,
+};
 
 export default DashboardLayout;

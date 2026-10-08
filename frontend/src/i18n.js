@@ -12,8 +12,15 @@ const LAZY_LOCALES = {
   cn: () => import('./lang/cn.json'),
 };
 
+export const SUPPORTED_LANGS = ['fa', 'en', 'ru', 'cn'];
+
+/** @type {Record<string, string>} */
+export const LANG_LABELS = { fa: 'فارسی', en: 'English', ru: 'Русский', cn: '中文' };
+
+export const isRTL = (lng) => String(lng).startsWith('fa');
+
 const applyDocumentDir = (lng) => {
-  const dir = lng.startsWith('fa') ? 'rtl' : 'ltr';
+  const dir = isRTL(lng) ? 'rtl' : 'ltr';
   document.documentElement.dir = dir;
   document.documentElement.lang = lng;
   document.body.setAttribute('dir', dir);

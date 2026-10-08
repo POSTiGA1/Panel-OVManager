@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { getUiPref, setUiPref } from '../../utils/uiPrefs';
-import { loadLanguage } from '../../i18n';
+import { loadLanguage, SUPPORTED_LANGS, LANG_LABELS } from '../../i18n';
 import { FiSun, FiMoon, FiMonitor, FiGlobe, FiDownload } from 'react-icons/fi';
 import apiClient from '../../services/api';
 import { Card } from './shared';
@@ -28,13 +28,6 @@ const AppearanceSection = () => {
     { id: 'light', label: t('lightTheme', 'Light'), icon: FiSun },
     { id: 'dark', label: t('darkTheme', 'Dark'), icon: FiMoon },
     { id: 'system', label: t('systemTheme', 'System'), icon: FiMonitor },
-  ];
-
-  const LANGS = [
-    { id: 'fa', label: 'فارسی' },
-    { id: 'en', label: 'English' },
-    { id: 'ru', label: 'Русский' },
-    { id: 'cn', label: '中文' },
   ];
 
   const changeLanguage = (id: string) => {
@@ -155,15 +148,15 @@ const AppearanceSection = () => {
 
       <Card title={t('languageCard', 'Language')} icon={FiGlobe}>
         <div className="sp-lang-row" role="group" aria-label={t('languageCard', 'Language')}>
-          {LANGS.map((item) => (
+          {SUPPORTED_LANGS.map((id) => (
             <button
-              key={item.id}
+              key={id}
               type="button"
-              className={`sp-lang-btn${lang === item.id ? ' active' : ''}`}
-              onClick={() => changeLanguage(item.id)}
-              aria-pressed={lang === item.id}
+              className={`sp-lang-btn${lang === id ? ' active' : ''}`}
+              onClick={() => changeLanguage(id)}
+              aria-pressed={lang === id}
             >
-              {item.label}
+              {LANG_LABELS[id]}
             </button>
           ))}
         </div>
