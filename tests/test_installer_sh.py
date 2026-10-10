@@ -651,48 +651,37 @@ def test_recovery_handles_every_persisted_update_phase():
     assert '"$reported" == "$from"' in source
 
 
-def test_update_database_restore_verifies_bundle_and_preserves_mode(tmp_path):
-    import hashlib
-    import io
-    import tarfile
+def test_update_database_restore_checks_integrity_and_preserves_mode(tmp_path):
+    """Failover writes the plain .db safety copy back with the live file's
+    mode, and refuses a safety file that is not a healthy SQLite database."""
+    import sqlite3
 
     database = tmp_path / "ovmanager.db"
     database.write_bytes(b"new candidate data")
     database.chmod(0o640)
-    old_data = b"safe pre-update database"
-    digest = hashlib.sha256(old_data).hexdigest()
-    bundle = tmp_path / "safety.ovmbak"
-    members = {
-        "panel.db": old_data,
-        "manifest.json": json.dumps({"database_sha256": digest}).encode(),
-        "checksums.sha256": f"{digest}  panel.db\n".encode(),
-    }
-    with tarfile.open(bundle, "w:gz") as archive:
-        for name, payload in members.items():
-            info = tarfile.TarInfo(name)
-            info.size = len(payload)
-            archive.addfile(info, io.BytesIO(payload))
+    safety = tmp_path / "safety.db"
+    con = sqlite3.connect(safety)
+    con.execute("CREATE TABLE t (x)")
+    con.commit()
+    con.close()
+    safety.chmod(0o600)
 
-    harness = _extract_function("restore_update_database") + f'\nrestore_update_database "{bundle}" "{database}"\n'
+    harness = _extract_function("restore_update_database") + f'\nrestore_update_database "{safety}" "{database}"\n'
     result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
-    assert database.read_bytes() == old_data
+    assert database.read_bytes() == safety.read_bytes()
     assert database.stat().st_mode & 0o777 == 0o640
 
-    bad_bundle = tmp_path / "bad.ovmbak"
-    members["checksums.sha256"] = b"0" * 64 + b"  panel.db\n"
-    with tarfile.open(bad_bundle, "w:gz") as archive:
-        for name, payload in members.items():
-            info = tarfile.TarInfo(name)
-            info.size = len(payload)
-            archive.addfile(info, io.BytesIO(payload))
+    bad_safety = tmp_path / "bad.db"
+    bad_safety.write_bytes(b"not a database")
     bad = subprocess.run(
-        ["bash", "-c", _extract_function("restore_update_database") + f'\nrestore_update_database "{bad_bundle}" "{database}"\n'],
+        ["bash", "-c", _extract_function("restore_update_database") + f'\nrestore_update_database "{bad_safety}" "{database}"\n'],
         capture_output=True,
         text=True,
         timeout=30,
     )
     assert bad.returncode != 0
+    assert database.read_bytes() == safety.read_bytes(), "a refused safety file must not touch the database"
 
 
 def test_update_journal_is_private_and_atomic(tmp_path):
@@ -702,7 +691,7 @@ def test_update_journal_is_private_and_atomic(tmp_path):
         "set -Eeuo pipefail\n"
         f'UPDATE_STATE="{state}"; DATA_DIR="{tmp_path}"; VERSION=2.0.0\n'
         + source
-        + "\nupdate_state verifying 1.2.7 2.0.0 /safe/pre-update.ovmbak\n"
+        + "\nupdate_state verifying 1.2.7 2.0.0 /safe/pre-update.db\n"
     )
     r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, r.stderr
@@ -710,7 +699,7 @@ def test_update_journal_is_private_and_atomic(tmp_path):
     assert data["phase"] == "verifying"
     assert data["from_version"] == "1.2.7"
     assert data["to_version"] == "2.0.0"
-    assert data["safety_backup"] == "/safe/pre-update.ovmbak"
+    assert data["safety_backup"] == "/safe/pre-update.db"
     assert state.stat().st_mode & 0o777 == 0o600
 
 
@@ -1219,47 +1208,24 @@ def test_every_wizard_step_says_what_its_options_mean():
     assert "Step 4/4" not in source
 
 
-def test_safety_backup_falls_back_without_maintenance_module(tmp_path):
-    """Updates from releases predating backend.routers.maintenance must
-    still produce a verified .db safety copy (defect: Step 1/6 died on old trees)."""
-    import sqlite3
-
+def test_safety_backup_fails_loudly_without_maintenance_module(tmp_path):
+    """The pre-update safety copy is mandatory: when the installed tree cannot
+    write one, the update dies instead of continuing without a rollback file."""
     fake_install = tmp_path / "install"
     fake_install.mkdir()
     fake_data = tmp_path / "data"
     fake_data.mkdir()
-    db = fake_data / "ovmanager.db"
-    con = sqlite3.connect(db)
-    con.execute("CREATE TABLE t (x)")
-    con.execute("PRAGMA user_version=10")
-    con.commit()
-    con.close()
     harness = (
         'die() { echo "DIE: $1" >&2; exit 1; }\n'
         'render_warn() { echo "WARN: $1" >&2; }\nrender_ok() { :; }\nrender_note() { :; }\n'
         + _extract_function("update_safety_backup")
-        + "\n"
-        + _extract_function("legacy_safety_bundle")
         + f'\nMODE=native INSTALL_DIR="{fake_install}" DATA_DIR="{fake_data}"\n'
-        + "update_safety_backup 1.2.6\n"
+        + 'if safety="$(update_safety_backup)"; then echo "WROTE $safety"; else echo "REFUSED"; fi\n'
     )
     r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
-    bundles = sorted((fake_data / "backups").glob("ovmanager-pre-update-*.db"))
-    assert len(bundles) == 1, r.stdout
-    assert bundles[0].stat().st_mode & 0o777 == 0o600
-    out_db = tmp_path / "restored.db"
-    restore = (
-        _extract_function("restore_update_database")
-        + f'\nDATA_DIR="{fake_data}"\nrestore_update_database "{bundles[0]}" "{out_db}"\n'
-    )
-    r2 = subprocess.run(["bash", "-c", restore], capture_output=True, text=True, timeout=60)
-    assert r2.returncode == 0, r2.stderr
-    con = sqlite3.connect(out_db)
-    try:
-        assert con.execute("PRAGMA user_version").fetchone()[0] == 10
-    finally:
-        con.close()
+    assert "REFUSED" in r.stdout, r.stdout
+    assert not (fake_data / "backups").exists(), "a failed safety copy must not leave a partial backup dir"
 
 
 def test_db_restore_needed_skips_untouched_database(tmp_path):
@@ -1274,15 +1240,13 @@ def test_db_restore_needed_skips_untouched_database(tmp_path):
     con.execute("PRAGMA user_version=11")
     con.commit()
     con.close()
-    helpers = 'die() { echo "DIE: $1" >&2; exit 1; }\nrender_warn() { :; }\nrender_ok() { :; }\nrender_note() { :; }\n'
-    mk = (
-        helpers
-        + _extract_function("legacy_safety_bundle")
-        + f'\nMODE=native DATA_DIR="{fake_data}"\nlegacy_safety_bundle 1.2.7 >/dev/null\n'
-    )
-    r = subprocess.run(["bash", "-c", mk], capture_output=True, text=True, timeout=60)
-    assert r.returncode == 0, r.stderr
-    (bundle,) = sorted((fake_data / "backups").glob("*.db"))
+    backups = fake_data / "backups"
+    backups.mkdir()
+    bundle = backups / "ovmanager-pre-update-20260101_000000.db"
+    con = sqlite3.connect(bundle)
+    con.execute("PRAGMA user_version=11")
+    con.commit()
+    con.close()
     check = (
         _extract_function("db_restore_needed")
         + f'\nDATA_DIR="{fake_data}"\nif db_restore_needed "{bundle}"; then echo NEEDS; else echo SKIP; fi\n'
@@ -2102,7 +2066,8 @@ def test_secret_bearing_paths_are_owner_only():
     """
     body = _installer_source()
     assert re.search(r'chmod 700 "\$DATA_DIR"', body), "the data directory must be 0700"
-    assert re.search(r'chmod 700 "\$backup_dir"', body), "backups must be 0700"
+    # The backups dir is created 0700 by the backend (maintenance.create_panel_backup),
+    # which owns it now that the installer no longer keeps a fallback copy path.
     # The installed .env has no credential anymore, but it still carries the
     # URLPATH secret and TLS paths, so it stays group-only at worst.
     assert re.search(r'chmod 640 "\$INSTALL_DIR/\.env"', body)

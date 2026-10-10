@@ -1509,9 +1509,8 @@ issue_claim_key() {
 
 update_safety_backup() {
     local keep=10 path
-    # The installed tree's transactional backup first; any failure (missing
-    # module, older signature) falls back to a legacy bundle so old releases
-    # can still update.
+    # The installed tree's transactional backup is the only path: the panel
+    # writes a plain .db file, and restore_update_database consumes it.
     if [[ "$MODE" == "docker" ]]; then
         if path="$(docker exec ovmanager /app/.venv/bin/python -c \
             "from backend.routers.maintenance import create_panel_backup; p=create_panel_backup(${keep}, label='pre-update'); print(p or '')" 2>/dev/null)"; then
@@ -1527,53 +1526,10 @@ update_safety_backup() {
             return 0
         fi
     fi
-    render_warn "Installed release lacks transactional backups — legacy safety copy"
-    # Installed release predates transactional backups: build an equivalent
-    # plain .db safety copy with stdlib python. restore_update_database
-    # consumes both that and old .ovmbak bundles unchanged.
-    legacy_safety_bundle "${1:-unknown}" || return 1
+    return 1
 }
 
-legacy_safety_bundle() {
-    local app_version="$1" backup_dir="${DATA_DIR}/backups"
-    [[ -f "${DATA_DIR}/ovmanager.db" ]] || return 0
-    mkdir -p "$backup_dir" && chmod 700 "$backup_dir"
-    python3 - "$DATA_DIR" "$backup_dir" "$app_version" <<'PY' || return 1
-import os, sqlite3, sys, tempfile
-from datetime import datetime, timezone
-data_dir, backup_dir, app_version = sys.argv[1], sys.argv[2], sys.argv[3]
-src = os.path.join(data_dir, "ovmanager.db")
-con = sqlite3.connect("file:%s?mode=ro" % src, uri=True)
-try:
-    row = con.execute("PRAGMA quick_check").fetchone()
-finally:
-    con.close()
-if not row or row[0] != "ok":
-    raise SystemExit("source database integrity failed")
-fd, snap = tempfile.mkstemp(prefix=".ovmanager-snapshot-", suffix=".db", dir=backup_dir)
-os.close(fd); os.chmod(snap, 0o600)
-s = sqlite3.connect("file:%s?mode=ro" % src, uri=True)
-d = sqlite3.connect(snap)
-try:
-    s.backup(d)
-    d.commit()
-finally:
-    d.close(); s.close()
-stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-final = os.path.join(backup_dir, "ovmanager-pre-update-%s.db" % stamp)
-try:
-    os.replace(snap, final); os.chmod(final, 0o600)
-finally:
-    try: os.unlink(snap)
-    except FileNotFoundError: pass
-print(final)
-PY
-    # Retention for legacy pre-update backups (backend prunes only its own).
-    ls -t "$backup_dir"/ovmanager-pre-update-*.db "$backup_dir"/ovmanager-pre-update-*.ovmbak 2>/dev/null | tail -n +11 | xargs -r rm -f
-    return 0
-}
-
-# True when the live database no longer matches the safety bundle (schema
+# True when the live database no longer matches the safety backup (schema
 # version): the candidate migrated it, so failover must restore. Matching
 # versions mean it never migrated and the restore is skipped, and a
 # missing/unreadable live database also requests a restore.
@@ -1593,8 +1549,8 @@ candidate_version() {
 
 db_restore_needed() {
     python3 - "$1" "${DATA_DIR}/ovmanager.db" <<'PY'
-import os, sqlite3, sys, tarfile, tempfile
-bundle, live = sys.argv[1], sys.argv[2]
+import sqlite3, sys
+backup, live = sys.argv[1], sys.argv[2]
 def version(path):
     con = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
     try:
@@ -1605,49 +1561,26 @@ try:
     live_version = version(live)
 except Exception:
     raise SystemExit(0)
-if tarfile.is_tarfile(bundle):
-    with tarfile.open(bundle, "r:gz") as tf:
-        data = tf.extractfile("panel.db").read()
-    fd, tmp = tempfile.mkstemp(prefix=".update-compare-")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        bundle_version = version(tmp)
-    finally:
-        os.unlink(tmp)
-else:
-    bundle_version = version(bundle)
-raise SystemExit(0 if bundle_version != live_version else 1)
+backup_version = version(backup)
+raise SystemExit(0 if backup_version != live_version else 1)
 PY
 }
 
 restore_update_database() {
-    local bundle="$1" db="${2:-${DATA_DIR}/ovmanager.db}"
-    [[ -f "$bundle" ]] || return 1
-    python3 - "$bundle" "$db" <<'PY'
-import hashlib, json, os, sqlite3, tarfile, tempfile, sys
+    local backup="$1" db="${2:-${DATA_DIR}/ovmanager.db}"
+    [[ -f "$backup" ]] || return 1
+    python3 - "$backup" "$db" <<'PY'
+import os, sqlite3, sys, tempfile
 src, db = sys.argv[1:]
-if tarfile.is_tarfile(src):
-    with tarfile.open(src, "r:gz") as tf:
-        names = {m.name for m in tf.getmembers() if m.isfile()}
-        if names != {"panel.db", "manifest.json", "checksums.sha256"}:
-            raise SystemExit("unsafe update backup")
-        manifest = json.load(tf.extractfile("manifest.json"))
-        checksum_line = tf.extractfile("checksums.sha256").read().decode("ascii").strip()
-        data = tf.extractfile("panel.db").read()
-        digest = hashlib.sha256(data).hexdigest()
-        if digest != manifest.get("database_sha256") or checksum_line != f"{digest}  panel.db":
-            raise SystemExit("update backup checksum mismatch")
-else:
-    with open(src, "rb") as f:
-        data = f.read()
-    con = sqlite3.connect("file:%s?mode=ro" % src, uri=True)
-    try:
-        row = con.execute("PRAGMA quick_check").fetchone()
-    finally:
-        con.close()
-    if not row or row[0] != "ok":
-        raise SystemExit("update backup integrity check failed")
+con = sqlite3.connect("file:%s?mode=ro" % src, uri=True)
+try:
+    row = con.execute("PRAGMA quick_check").fetchone()
+finally:
+    con.close()
+if not row or row[0] != "ok":
+    raise SystemExit("update backup integrity check failed")
+with open(src, "rb") as f:
+    data = f.read()
 parent = os.path.dirname(db); fd, tmp = tempfile.mkstemp(prefix=".update-rollback-", dir=parent)
 try:
     try:
@@ -2493,7 +2426,7 @@ do_update() {
     update_state preflight "$from_version" "$VERSION"
 
     render_begin "backup" 6
-    safety="$(update_safety_backup "$from_version")" || die "Could not create the mandatory pre-update backup"
+    safety="$(update_safety_backup)" || die "Could not create the mandatory pre-update backup"
     [[ -n "$safety" && -f "$safety" ]] || die "The pre-update backup was not created"
     snapshot="$(snapshot_code "$INSTALL_DIR" "panel" 2)"
     render_done "$(basename "$safety" 2>/dev/null)"

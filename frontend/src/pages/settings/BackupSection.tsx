@@ -148,15 +148,15 @@ const BackupSection = () => {
     try {
       const r = await apiClient.get('/maintenance/backup/download', { responseType: 'blob' });
       const url = URL.createObjectURL(new Blob([r.data]));
-      const a = document.createElement('a'); a.href = url; a.download = backups[0]?.name || 'ovmanager-backup.ovmbak';
+      const a = document.createElement('a'); a.href = url; a.download = backups[0]?.name || 'ovmanager-backup.db';
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     } catch { addToast(t('error', 'Download failed'), 'error'); }
   };
 
   const doRestore = async () => {
     if (!restoreFile) return;
-    if (!restoreFile.name.endsWith('.ovmbak') && !restoreFile.name.endsWith('.db')) {
-      addToast(t('backupMustBeDb', 'Backup file must be an .ovmbak bundle or legacy .db file.'), 'error');
+    if (!restoreFile.name.endsWith('.db')) {
+      addToast(t('backupMustBeDb', 'Backup file must be a .db file.'), 'error');
       return;
     }
     setBusy('restore');
@@ -325,10 +325,10 @@ const BackupSection = () => {
       </Card>
 
       <Card title={t('restoreSection', 'Restore from File')} icon={FiArchive}>
-        <p className="sp-hint sp-mb-12">{t('restoreHint', 'Select an .ovmbak bundle or legacy .db backup. This overwrites current data and asks for confirmation.')}</p>
+        <p className="sp-hint sp-mb-12">{t('restoreHint', 'Select a .db backup file to restore. This overwrites current data and asks for confirmation.')}</p>
         <div className="sp-field">
           <label className="sr-only" htmlFor="sp-restore-file">{t('selectBackupFile', 'Select backup file')}</label>
-          <input id="sp-restore-file" type="file" accept=".ovmbak,.db" onChange={e => setRestoreFile(e.target.files?.[0] || null)} className="sp-file-input" aria-label={t('selectBackupFile', 'Select backup file')} />
+          <input id="sp-restore-file" type="file" accept=".db" onChange={e => setRestoreFile(e.target.files?.[0] || null)} className="sp-file-input" aria-label={t('selectBackupFile', 'Select backup file')} />
         </div>
         <button className="btn btn-sm" disabled={!restoreFile || !!busy} aria-busy={busy === 'restore'} onClick={askRestore}>
           {busy === 'restore' ? <span className="button-spinner" aria-hidden="true" /> : <><FiRefreshCw size={13} aria-hidden="true" /> {t('restoreButton', 'Restore')}</>}

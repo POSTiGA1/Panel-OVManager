@@ -144,12 +144,12 @@ def _shape_and_all_ok(monkeypatch, tmp_path, install):
     )
     (tmp_path / "data").chmod(0o700)  # the Permissions check is real
     # /var/backups is real on a developer box and empty on a runner, so a fresh
-    # bundle in the temp data dir is what makes this check mean the same thing
+    # backup in the temp data dir is what makes this check mean the same thing
     # in both places.
     bundles = tmp_path / "data" / "backups"
     bundles.mkdir(parents=True, exist_ok=True)
     bundles.chmod(0o700)  # the Permissions check wants 0700 on the backups dir
-    (bundles / "fresh.ovmbak").write_text("x", encoding="utf-8")
+    (bundles / "fresh.db").write_text("x", encoding="utf-8")
     checks = doctor.collect(install, legacy_backup_dir=str(tmp_path / "no-legacy-backups"))
     # The four checks below the original six were ported back from the bash
     # doctor: certificate expiry, interrupted update, backup age and private

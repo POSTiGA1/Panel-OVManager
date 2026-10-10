@@ -22,11 +22,6 @@ from backend.db import crud
 from backend.db.engine import engine, get_db
 from backend.db.models import User
 from backend.node.sync import clean_stale_sessions_all_nodes, sync_all_user_limits
-from backend.operations.backup.bundle import (
-    BUNDLE_SUFFIX,
-    BackupBundleError,
-    verify_bundle,
-)
 from backend.operations.billing.usage import prune_daily
 from backend.operations.observability import live as live_ops
 from backend.operations.observability.audit import log_event
@@ -72,6 +67,7 @@ def _create_panel_backup_unlocked(keep: int | None = None, *, label: str = "back
 
     max_backups = _MAX_BACKUPS if keep is None else max(1, int(keep))
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(BACKUP_DIR, 0o700)  # backups hold the whole database: keep them owner-only
     with engine.connect() as conn:
         conn.execute(_text("PRAGMA wal_checkpoint(TRUNCATE)"))
         conn.commit()
@@ -94,7 +90,7 @@ def _create_panel_backup_unlocked(keep: int | None = None, *, label: str = "back
         snapshot.unlink(missing_ok=True)
 
     all_backups = sorted(
-        BACKUP_DIR.glob(f"ovmanager-{label}-*.*"),
+        BACKUP_DIR.glob(f"ovmanager-{label}-*.db"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -137,11 +133,7 @@ def _backup_files() -> list[Path]:
     if not BACKUP_DIR.exists():
         return []
     return sorted(
-        (
-            p
-            for p in BACKUP_DIR.iterdir()
-            if p.is_file() and (p.name.endswith(BUNDLE_SUFFIX) or p.suffix == ".db") and not p.name.startswith("restore_")
-        ),
+        (p for p in BACKUP_DIR.iterdir() if p.is_file() and p.suffix == ".db" and not p.name.startswith("restore_")),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -154,7 +146,7 @@ def stored_backups() -> list[dict]:
 
 @router.get("/backup/download", response_class=FileResponse)
 async def download_backup(user: dict = Depends(require_owner)):
-    """Download the newest backup (a .db file, or a legacy .ovmbak bundle)."""
+    """Download the newest backup (a .db file)."""
 
     backups = _backup_files()
     if not backups:
@@ -178,58 +170,14 @@ async def list_backups(user: dict = Depends(require_owner)):
 
     files = []
     for b in backups:
-        item = {
-            "name": b.name,
-            "size": b.stat().st_size,
-            "modified": datetime.fromtimestamp(b.stat().st_mtime, tz=UTC).isoformat(),
-            "format": "bundle" if b.name.endswith(BUNDLE_SUFFIX) else "db",
-            "verified": None,
-        }
-        if b.name.endswith(BUNDLE_SUFFIX):
-            try:
-                manifest = await run_in_threadpool(verify_bundle, b)
-                item.update(
-                    verified=True,
-                    app_version=manifest.get("app_version"),
-                    created_at=manifest.get("created_at"),
-                    format_version=manifest.get("format_version"),
-                )
-            except BackupBundleError as exc:
-                item.update(verified=False, error=str(exc))
-        files.append(item)
+        files.append(
+            {
+                "name": b.name,
+                "size": b.stat().st_size,
+                "modified": datetime.fromtimestamp(b.stat().st_mtime, tz=UTC).isoformat(),
+            }
+        )
     return ResponseModel(success=True, msg="Backups listed", data=files)
-
-
-@router.post("/backup/verify", response_model=ResponseModel)
-async def verify_server_backup(
-    filename: str = Form(...),
-    user: dict = Depends(require_owner),
-):
-    """Re-verify a stored bundle without modifying panel state."""
-
-    safe_name = _safe_filename(filename)
-    if not safe_name or safe_name != filename or not safe_name.endswith(BUNDLE_SUFFIX):
-        return ResponseModel(success=False, msg="Select a valid .ovmbak bundle", data=None)
-    path = (BACKUP_DIR / safe_name).resolve()
-    if not path.is_relative_to(BACKUP_DIR.resolve()) or not path.is_file():
-        return ResponseModel(success=False, msg="Backup file not found", data=None)
-    try:
-        manifest = await run_in_threadpool(verify_bundle, path)
-    except BackupBundleError as exc:
-        log_event(None, "maintenance.backup.verify", actor=user.get("username"), detail=f"Verification failed: {safe_name}")
-        return ResponseModel(success=False, msg=f"Backup verification failed: {exc}", data=None)
-    log_event(None, "maintenance.backup.verify", actor=user.get("username"), detail=f"Verified: {safe_name}")
-    return ResponseModel(
-        success=True,
-        msg="Backup verified",
-        data={
-            "filename": safe_name,
-            "verified": True,
-            "app_version": manifest.get("app_version"),
-            "created_at": manifest.get("created_at"),
-            "format_version": manifest.get("format_version"),
-        },
-    )
 
 
 def _safe_filename(name: str | None) -> str:
@@ -419,23 +367,6 @@ def _atomic_db_restore(src_path: Path, user: dict, detail: str) -> ResponseModel
             restore_lock.clear()
 
 
-def _restore_artifact(src_path: Path, user: dict, detail: str) -> ResponseModel:
-    """Restore a plain SQLite backup file.
-
-    Legacy ``.ovmbak`` names stay accepted (the updater and health checks hand
-    out both suffixes during the transition) but no longer extract: the bundle
-    is staged via the same SQLite path, and a refusal says so instead of
-    surfacing a bare "not a database".
-    """
-    result = _atomic_db_restore(src_path, user, detail)
-    if not result.success and src_path.name.endswith(BUNDLE_SUFFIX):
-        result.msg = (
-            "legacy bundle, will stage via the SQLite path only — the panel no longer "
-            f"extracts .ovmbak bundles; restore the extracted .db file instead ({result.msg})"
-        )
-    return result
-
-
 def restore_stored_backup(name: str, actor: str) -> ResponseModel:
     """Restore a backup that is already in BACKUP_DIR, by name.
 
@@ -448,9 +379,9 @@ def restore_stored_backup(name: str, actor: str) -> ResponseModel:
         return ResponseModel(success=False, msg="Invalid backup path", data=None)
     if not src_path.is_file():
         return ResponseModel(success=False, msg=f"Backup file '{name}' not found", data=None)
-    if not (name.endswith(".db") or name.endswith(BUNDLE_SUFFIX)):
-        return ResponseModel(success=False, msg="Backup file must be an .ovmbak bundle or legacy .db file", data=None)
-    return _restore_artifact(src_path, {"username": actor}, f"Restored from server backup: {name}")
+    if not name.endswith(".db"):
+        return ResponseModel(success=False, msg="Backup file must be a .db file", data=None)
+    return _atomic_db_restore(src_path, {"username": actor}, f"Restored from server backup: {name}")
 
 
 @router.post("/backup/restore", response_model=ResponseModel)
@@ -470,8 +401,8 @@ async def restore_backup(
         if restore_from_server:
             return await run_in_threadpool(restore_stored_backup, restore_from_server, user.get("username"))
 
-        if file is None or not file.filename or not (file.filename.endswith(".db") or file.filename.endswith(BUNDLE_SUFFIX)):
-            return ResponseModel(success=False, msg="Backup file must be an .ovmbak bundle or legacy .db file", data=None)
+        if file is None or not file.filename or not file.filename.endswith(".db"):
+            return ResponseModel(success=False, msg="Backup file must be a .db file", data=None)
 
         safe_name = _safe_filename(file.filename)
         if not safe_name:
@@ -519,7 +450,7 @@ async def restore_backup(
         os.replace(str(tmp_path), str(final_tmp))
         tmp_path = final_tmp
 
-        result = await run_in_threadpool(_restore_artifact, tmp_path, user, f"Restored from: {file.filename}")
+        result = await run_in_threadpool(_atomic_db_restore, tmp_path, user, f"Restored from: {file.filename}")
 
         tmp_path.unlink(missing_ok=True)
         return result

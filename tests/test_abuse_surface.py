@@ -2,9 +2,6 @@
 or a shell. Only the owner reaches sensitive endpoints (over SSH for the
 terminal); every byte the API touches is validated before use."""
 
-import io
-import tarfile
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -88,24 +85,6 @@ def test_tls_renew_rejects_malicious_domains_without_executing(monkeypatch):
         resp = client.post("/api/tls/renew", json={"domain": evil}, headers=owner)
         assert resp.json()["success"] is False, evil
     assert calls == []
-
-
-def test_bundle_extract_rejects_zipslip_member_names(tmp_path):
-    from backend.operations.backup import bundle as bb
-
-    evil = tmp_path / "evil.ovmbak"
-    with tarfile.open(evil, "w:gz") as tf:
-        for name in ("../../evil.db", "/abs/evil.db", "panel.db"):
-            data = b"data-" + name.encode()
-            info = tarfile.TarInfo(name=name)
-            info.size = len(data)
-            tf.addfile(info, io.BytesIO(data))
-    out = tmp_path / "out.db"
-    with pytest.raises(bb.BackupBundleError):
-        bb.extract_database(evil, out)
-    assert not out.exists()
-    assert not (tmp_path / "evil.db").exists()
-    assert not (tmp_path / "abs").exists()
 
 
 def test_spawn_detached_never_uses_a_shell(monkeypatch):

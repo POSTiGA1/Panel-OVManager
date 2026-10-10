@@ -327,11 +327,11 @@ def check_update_journal(install: Install) -> Check:
 
 
 def check_backup_age(install: Install, maximum_days: int = 7, legacy_dir: str = "/var/backups") -> Check:
-    """Age of the newest backup, in either the .db or legacy .ovmbak/tarball form."""
+    """Age of the newest backup (.db in the data dir, or the installer's update tarball)."""
     candidates: list[str] = []
     backups = os.path.join(install.data_dir, "backups")
     if os.path.isdir(backups):
-        candidates += [os.path.join(backups, f) for f in os.listdir(backups) if f.endswith(".db") or f.endswith(".ovmbak")]
+        candidates += [os.path.join(backups, f) for f in os.listdir(backups) if f.endswith(".db")]
     if os.path.isdir(legacy_dir):
         candidates += [
             os.path.join(legacy_dir, f) for f in os.listdir(legacy_dir) if f.startswith("panel-") and f.endswith(".tar.gz")

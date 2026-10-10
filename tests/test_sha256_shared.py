@@ -1,9 +1,8 @@
-"""One file-digest helper for the backup paths.
+"""One file-digest helper for backup delivery.
 
-``backup_bundle`` and ``telegram_backup`` each carried their own chunked
-SHA-256 — same algorithm, same 1 MiB chunk, different names. These digests
-gate backup integrity, so a divergence between the two copies is a silent
-"verified" on a corrupt or tampered bundle.
+Telegram delivery hashes each backup through the shared chunked SHA-256
+in ``backend.utils.checksums`` rather than a private copy: these digests
+gate delivery, so a divergence would be a silent hash of a corrupt backup.
 """
 
 import hashlib
@@ -15,7 +14,7 @@ def test_matches_a_known_digest(tmp_path):
     from backend.utils.checksums import sha256_file
 
     payload = b"ovmanager-backup-payload"
-    target = tmp_path / "bundle.ovmbak"
+    target = tmp_path / "backup.db"
     target.write_bytes(payload)
 
     assert sha256_file(target) == hashlib.sha256(payload).hexdigest()
@@ -26,7 +25,7 @@ def test_hashes_a_file_larger_than_one_chunk(tmp_path):
     from backend.utils.checksums import sha256_file
 
     payload = b"x" * (3 * 1024 * 1024 + 7)
-    target = tmp_path / "big.ovmbak"
+    target = tmp_path / "big.db"
     target.write_bytes(payload)
 
     assert sha256_file(target) == hashlib.sha256(payload).hexdigest()
@@ -48,12 +47,11 @@ def test_missing_file_raises(tmp_path):
 
 
 def test_both_backup_paths_use_the_shared_helper():
-    """Neither module may keep a private copy."""
+    """The delivery path may not keep a private copy."""
     import inspect
 
-    from backend.operations.backup import bundle, telegram
+    from backend.operations.backup import telegram
 
-    for module in (bundle, telegram):
-        src = inspect.getsource(module)
-        assert "def _sha256" not in src, f"{module.__name__} still defines its own digest"
-        assert "sha256_file" in src, f"{module.__name__} does not use the shared helper"
+    src = inspect.getsource(telegram)
+    assert "def _sha256" not in src, f"{telegram.__name__} still defines its own digest"
+    assert "sha256_file" in src, f"{telegram.__name__} does not use the shared helper"

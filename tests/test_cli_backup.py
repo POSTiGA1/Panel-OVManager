@@ -51,7 +51,7 @@ def _tmp_session_factory(tmp_path, monkeypatch):
 
 def test_backup_now_success_with_stubbed_backend(monkeypatch, tmp_path):
     install = _install(tmp_path)
-    fake_path = tmp_path / "data" / "ovmanager-backup-test.ovmbak"
+    fake_path = tmp_path / "data" / "ovmanager-backup-test.db"
     fake_path.write_text("fake", encoding="utf-8")
 
     import backend.routers.maintenance as maintenance
@@ -78,7 +78,7 @@ def test_backup_now_default_keep_is_fourteen(monkeypatch, tmp_path):
     import backend.routers.maintenance as maintenance
 
     seen = {}
-    monkeypatch.setattr(maintenance, "create_panel_backup", lambda keep=None: (seen.update(keep=keep), Path("/tmp/x.ovmbak"))[1])
+    monkeypatch.setattr(maintenance, "create_panel_backup", lambda keep=None: (seen.update(keep=keep), Path("/tmp/x.db"))[1])
     data = backup.backup_now(install)
     assert data["ok"] is True
     assert seen["keep"] == 14
@@ -206,7 +206,7 @@ def test_main_dispatch_returns_correct_codes(monkeypatch, tmp_path, capsys):
 
     import backend.routers.maintenance as maintenance
 
-    monkeypatch.setattr(maintenance, "create_panel_backup", lambda keep=None: tmp_path / "b.ovmbak")
+    monkeypatch.setattr(maintenance, "create_panel_backup", lambda keep=None: tmp_path / "b.db")
     rc = main(["--install-dir", str(tmp_path / "opt"), "backup", "--keep", "5"])
     assert rc == 0
     assert "verified backup" in capsys.readouterr().out
@@ -260,9 +260,9 @@ def test_restore_without_a_name_lists_backups_with_dates_and_sizes(monkeypatch, 
     """No name is the listing: names, dates and sizes, and nothing else."""
     install = _install(tmp_path)
     backups = _backup_dir(tmp_path, monkeypatch)
-    older = backups / "ovmanager-backup-20260101_000000-v1.ovmbak"
+    older = backups / "ovmanager-backup-20260101_000000-v1.db"
     older.write_bytes(b"x" * 3000)
-    newer = backups / "ovmanager-pre-restore-20260102_000000-v1.ovmbak"
+    newer = backups / "ovmanager-pre-restore-20260102_000000-v1.db"
     newer.write_bytes(b"y" * 10)
 
     data = restore.list_backups(install)
@@ -303,8 +303,8 @@ def test_restore_of_an_unknown_name_fails_without_restoring(monkeypatch, tmp_pat
     def forbidden(*args, **kwargs):
         raise AssertionError("an unknown name must not reach the restore transaction")
 
-    monkeypatch.setattr(maintenance, "_restore_artifact", forbidden)
-    rc = main(["--install-dir", str(install.install_dir), "restore", "nope.ovmbak"])
+    monkeypatch.setattr(maintenance, "_atomic_db_restore", forbidden)
+    rc = main(["--install-dir", str(install.install_dir), "restore", "nope.db"])
     assert rc != 0
     assert "not found" in capsys.readouterr().out
 
@@ -318,7 +318,7 @@ def test_restore_refuses_a_path_instead_of_a_name(monkeypatch, tmp_path):
         raise AssertionError("the backend must not be asked to restore a path")
 
     monkeypatch.setattr(maintenance, "restore_stored_backup", forbidden)
-    for bad in ("../ovmanager.db", "sub/backup.ovmbak", ".hidden", "", "a\\b.ovmbak"):
+    for bad in ("../ovmanager.db", "sub/backup.db", ".hidden", "", "a\\b.db"):
         data = restore.restore_backup(install, bad)
         assert data["ok"] is False, bad
         assert "Invalid" in data["error"], (bad, data)
@@ -332,7 +332,7 @@ def test_restore_refuses_when_the_panel_is_not_installed(monkeypatch, tmp_path):
         raise AssertionError("nothing may be restored on a missing install")
 
     monkeypatch.setattr(maintenance, "restore_stored_backup", forbidden)
-    data = restore.restore_backup(missing, "ovmanager-backup-20260101_000000-v1.ovmbak")
+    data = restore.restore_backup(missing, "ovmanager-backup-20260101_000000-v1.db")
     assert data["ok"] is False and data["installed"] is False
     assert "missing" in data["error"]
 
@@ -397,7 +397,7 @@ def test_restore_reports_the_safety_copy_when_the_restore_fails(monkeypatch, tmp
     class Result:
         success = False
         msg = "Invalid SQLite database: file is not a database"
-        data = {"safety_backup": "ovmanager-pre-restore-20260101_000001-v1.ovmbak", "rolled_back": True}
+        data = {"safety_backup": "ovmanager-pre-restore-20260101_000001-v1.db", "rolled_back": True}
 
     monkeypatch.setattr(maintenance, "restore_stored_backup", lambda name, actor: Result())
     data = restore.restore_backup(install, backup.name)

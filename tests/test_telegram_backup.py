@@ -11,7 +11,7 @@ def test_scheduled_backup_delivers_plain_telegram_copy(monkeypatch, tmp_path):
     from backend.db.engine import SessionLocal
     from backend.db.models import Settings
 
-    bundle = tmp_path / "scheduled.ovmbak"
+    bundle = tmp_path / "scheduled.db"
     bundle.write_bytes(b"bundle")
     delivered = []
 
@@ -53,7 +53,7 @@ class _Response:
 
 
 def test_send_document_uploads_bundle_as_is(monkeypatch, tmp_path):
-    backup = tmp_path / "panel.ovmbak"
+    backup = tmp_path / "panel.db"
     backup.write_bytes(b"verified bundle")
     settings = SimpleNamespace(owner_telegram_id=1234, bot_token="123:secret")
     seen = {}
@@ -73,11 +73,11 @@ def test_send_document_uploads_bundle_as_is(monkeypatch, tmp_path):
     assert result.file_id == "telegram-file"
     assert result.sha256 and len(result.sha256) == 64
     assert result.size == len(b"verified bundle")
-    assert seen["name"] == "panel.ovmbak"
+    assert seen["name"] == "panel.db"
 
 
 def test_send_document_requires_configuration(monkeypatch, tmp_path):
-    backup = tmp_path / "panel.ovmbak"
+    backup = tmp_path / "panel.db"
     backup.write_bytes(b"bundle")
     result = tb.send_backup_document(
         backup,

@@ -312,7 +312,7 @@ def _check_backups(db: Session) -> dict:
 
     files = []
     if BACKUP_DIR.is_dir():
-        files = [p for p in BACKUP_DIR.iterdir() if p.is_file() and (p.suffix == ".db" or p.name.endswith(".ovmbak"))]
+        files = [p for p in BACKUP_DIR.iterdir() if p.is_file() and p.suffix == ".db"]
     if not files:
         return _entry(
             "backups",

@@ -598,12 +598,12 @@ def test_doctor_and_rollback_dispatch_past_parse(tmp_path):
         assert "Not installed" in r.stderr, (cmd, r.stderr)
 
 
-def test_doctor_covers_backup_format_and_permissions():
-    """doctor must recognize the .ovmbak format and enforce private state
-    permissions (defects: backup-age ignored bundles, world-readable db)."""
+def test_doctor_covers_backup_age_and_permissions():
+    """doctor must scan the data-dir backups and enforce private state
+    permissions (defects: backup-age ignored backups, world-readable db)."""
     with open(CLI_DOCTOR, encoding="utf-8") as f:
         content = f.read()
-    assert ".ovmbak" in content
+    assert 'endswith(".db")' in content
     assert "Permissions" in content
 
 
@@ -1079,7 +1079,7 @@ def test_restore_refuses_without_confirmation(tmp_path):
     marker = tmp_path / "calls.log"
     data = tmp_path / "data"
     (data / "backups").mkdir(parents=True)
-    backup = data / "backups" / "ovmanager-backup-20260101_000000-v1.ovmbak"
+    backup = data / "backups" / "ovmanager-backup-20260101_000000-v1.db"
     backup.write_bytes(b"x")
     env = {**env, "MARKER": str(marker), "OVM_DATA_DIR": str(data)}
 
@@ -1099,7 +1099,7 @@ def test_restore_rejects_an_unknown_name_before_it_prompts(tmp_path):
     (data / "backups").mkdir(parents=True)
     env = {**env, "MARKER": str(marker), "OVM_DATA_DIR": str(data)}
 
-    for bad in ("nope.ovmbak", "../ovmanager.db"):
+    for bad in ("nope.db", "../ovmanager.db"):
         r = mgr_sb(env, app, "restore", bad)
         assert r.returncode != 0, (bad, r.stderr)
         assert "Cancelled" not in r.stderr, bad

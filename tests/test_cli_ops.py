@@ -104,11 +104,11 @@ def test_main_doctor_fix_and_tls_status(monkeypatch, tmp_path, capsys, hold_work
 
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: type("R", (), {"stdout": "enabled\n", "returncode": 0})())
     # The backup-age check reads the real /var/backups, which is populated on a
-    # developer box and empty on a runner. Give it a fresh bundle so the exit
+    # developer box and empty on a runner. Give it a fresh backup so the exit
     # code means the same thing in both.
     backups = tmp_path / "data" / "backups"
     backups.mkdir(parents=True, exist_ok=True)
-    (backups / "fresh.ovmbak").write_text("x", encoding="utf-8")
+    (backups / "fresh.db").write_text("x", encoding="utf-8")
     import cli.main as m
 
     monkeypatch.setattr(m, "Install", type("I", (), {"detect": staticmethod(lambda **kw: install)}))

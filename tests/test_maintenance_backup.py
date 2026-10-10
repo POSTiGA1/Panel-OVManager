@@ -130,6 +130,7 @@ def test_backup_restore_roundtrip_on_scratch_db(monkeypatch, tmp_path):
                 conn.close()
             assert rows == ["before"]
             assert any(p.name.startswith("ovmanager-pre-restore-") for p in fake_backups.glob("*.db"))
+            assert (fake_backups.stat().st_mode & 0o777) == 0o700, "the backups dir must stay owner-only"
     finally:
         fake_engine.dispose()
 
@@ -278,38 +279,3 @@ def test_failed_post_restore_migration_rolls_back(monkeypatch, tmp_path):
             assert not scratch.with_name(scratch.name + "-shm").exists()
     finally:
         fake_engine.dispose()
-
-
-def test_legacy_ovmbak_is_listed_verified_and_named_on_restore(monkeypatch, tmp_path):
-    """Legacy .ovmbak stays on the transition path (I3/I4).
-
-    The bundle list and verify routes still verify ``.ovmbak`` files, and a
-    restore refusal names the transition ("legacy bundle, will stage via ...")
-    instead of surfacing a bare "not a database".
-    """
-    from backend.operations.backup.bundle import create_bundle
-
-    snapshot = tmp_path / "snapshot.db"
-    conn = sqlite3.connect(str(snapshot))
-    conn.execute("CREATE TABLE probe (id INTEGER PRIMARY KEY, v TEXT)")
-    conn.commit()
-    conn.close()
-
-    fake_backups = tmp_path / "backups"
-    bundle = create_bundle(snapshot, fake_backups, label="backup")
-    monkeypatch.setattr(m, "BACKUP_DIR", fake_backups)
-
-    with TestClient(api) as client:
-        h = _owner_headers()
-
-        listed = {i["name"]: i for i in client.get("/api/maintenance/backup/list", headers=h).json()["data"]}
-        assert listed[bundle.name]["format"] == "bundle"
-        assert listed[bundle.name]["verified"] is True
-
-        verified = client.post("/api/maintenance/backup/verify", data={"filename": bundle.name}, headers=h).json()
-        assert verified["success"] is True, verified
-        assert verified["data"]["verified"] is True
-
-        restored = client.post("/api/maintenance/backup/restore", data={"restore_from_server": bundle.name}, headers=h).json()
-        assert restored["success"] is False, restored
-        assert "legacy bundle, will stage via" in restored["msg"]

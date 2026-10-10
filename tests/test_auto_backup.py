@@ -353,7 +353,7 @@ def test_ab_scheduled_run_prunes_to_the_keep_count(monkeypatch, tmp_path):
     fake_backups = tmp_path / "backups"
     fake_backups.mkdir()
     for i in range(5):
-        stale = fake_backups / f"ovmanager-backup-2024010{i}_000000-v1.ovmbak"
+        stale = fake_backups / f"ovmanager-backup-2024010{i}_000000-v1.db"
         stale.write_bytes(b"stale")
         os.utime(stale, (1_700_000_000 + i, 1_700_000_000 + i))
 
@@ -369,7 +369,7 @@ def test_ab_scheduled_run_prunes_to_the_keep_count(monkeypatch, tmp_path):
     try:
         asyncio.run(app_module.auto_backup_job())
 
-        backups = list(fake_backups.glob("ovmanager-backup-*.*"))
+        backups = list(fake_backups.glob("ovmanager-backup-*.db"))
         assert len(backups) == 2, [b.name for b in backups]
         # the fresh backup plus only the newest stale one survive the prune
         fresh = max(backups, key=lambda p: p.stat().st_mtime)
