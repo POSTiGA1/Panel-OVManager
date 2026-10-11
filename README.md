@@ -95,7 +95,7 @@ Web panel for a self-hosted VPN service: users, traffic quotas, expiry dates, de
 ### 🔧 Operations
 - `ovm doctor` runs 13 health checks over the service, autostart, file modes, data directory, disk space, worker, HTTP health and certificate; `--fix` applies the safe ones.
 - Staged updates with automatic failover, `ovm rollback` for the previous code tree, and `ovm recover-update` for an update interrupted by a reboot.
-- Verified `.ovmbak` backup bundles, listed and restored by name, or uploaded and restored atomically from the panel.
+- Verified `.db` backups, listed and restored by name, or uploaded and restored atomically from the panel.
 - Uninstall keeps your data unless you pass `--purge`; purging takes a snapshot to `/var/backups` first.
 - A text menu for everything above — run `ovmanager` with no arguments.
 
