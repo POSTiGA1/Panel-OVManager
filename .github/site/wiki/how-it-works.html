@@ -230,7 +230,7 @@
         them would only move the key to another file on the same host. What
         protects them is the file modes, so those are load-bearing: the data and
         backup directories are <code>0700</code>, and the database, the node
-        certificates and every <code>.ovmbak</code> bundle are
+        certificates and every backup <code>.db</code> copy are
         <code>0600</code>. Treat an off-site backup as secret material and move
         it over an encrypted channel.
       </li>
@@ -281,8 +281,10 @@
 
     <h2 id="backups">Backups</h2>
     <p>
-      <code>ovm backup</code> writes a verified <code>.ovmbak</code> bundle of the
-      panel database; <code>ovn backup</code> archives the node's data and PKI.
+      <code>ovm backup</code> writes a plain <code>.db</code> snapshot of the
+      panel database &mdash; an online-backup-API copy, <code>0600</code>, with
+      older copies pruned by the keep count; <code>ovn backup</code> archives
+      the node's data and PKI.
       Both keep the newest 14 by default and both have a daily systemd timer.
       Restoring an upload refuses writes with HTTP 503 until the swap finishes,
       keeps the replaced database as a fallback, and migrates the restored one on

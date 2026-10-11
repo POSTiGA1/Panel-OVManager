@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Backups &amp; restore — OVManager wiki</title>
-<meta name="description" content="OVManager backup bundles, the daily timer, offsite copies over SSH, and how a restore happens without taking the panel down.">
+<meta name="description" content="OVManager backups, the daily timer, offsite copies over SSH, and how a restore happens without taking the panel down.">
 <link rel="stylesheet" href="../assets/style.css">
   <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 </head>
@@ -47,14 +47,14 @@
     </p>
 
     <div class="note">
-      <h3>Treat a backup bundle as secret material</h3>
+      <h3>Treat a backup as secret material</h3>
       <p>
         The database holds node API keys and the Telegram bot token as written
         &mdash; there is no at-rest encryption, by design, because encrypting
         them would only move the key to another file on the same host. What
         protects them is the filesystem: the data and backup directories are
-        <code>0700</code>, and the database and every <code>.ovmbak</code>
-        bundle are <code>0600</code>. Move any off-site copy over an encrypted
+        <code>0700</code>, and the database and every backup <code>.db</code>
+        copy are <code>0600</code>. Move any off-site copy over an encrypted
         channel.
       </p>
     </div>
@@ -62,23 +62,28 @@
     <h2 id="now">Take a backup now</h2>
     <figure class="cmd">
       <figcaption>On the server</figcaption>
-      <pre><code>sudo ovm backup                # write a verified bundle now
+      <pre><code>sudo ovm backup                # write a database copy now
 sudo ovm backup --keep 30      # how many to keep (1-500, default 14)
 sudo ovm restore               # list what is available
-sudo ovm restore NAME.ovmbak   # restore one by name</code></pre>
+sudo ovm restore NAME.db       # restore one by name</code></pre>
     </figure>
     <p>
-      Bundles land in <code>/var/lib/ovmanager/backups</code>, and the newest 14
+      Backups land in <code>/var/lib/ovmanager/backups</code>, and the newest 14
       are kept unless you change that. Reaching for the panel's web UI is not
       required at any point &mdash; which matters, because the usual moment you
       want a backup is the moment the panel is unhappy.
     </p>
     <p>
-      A bundle is a gzipped tar with a <code>.ovmbak</code> suffix, holding a
-      consistent SQLite snapshot of the database, a manifest, and a checksum
-      file. It is verified as it is written and again as it is read, so a
-      truncated or edited bundle is refused rather than restored over your live
-      data.
+      A backup is a plain <code>.db</code> file named
+      <code>ovmanager-&lt;label&gt;-&lt;stamp&gt;.db</code>, written
+      <code>0600</code>: a consistent SQLite snapshot taken through the
+      online-backup API &mdash; safe while the panel is writing &mdash; staged
+      in a temporary file and only then published under its final name. The
+      newest copies beyond the keep count are pruned as they are made.
+      Restores stage and verify the candidate with
+      <code>PRAGMA quick_check</code> and a schema check before it replaces
+      anything, so a truncated or edited backup is refused rather than restored
+      over your live data.
     </p>
 
     <h2 id="schedule">A daily backup</h2>
@@ -100,7 +105,7 @@ sudo ovm auto-backup off</code></pre>
     <h2 id="offsite">Off-site copies</h2>
     <p>
       A daily backup on the same disk is not a backup. The scheduled backup can
-      push the newest bundle to another machine: fill in a target like
+      push the newest backup to another machine: fill in a target like
       <code>backup@server:/backups/panel</code> and, after each automatic
       backup, the newest file is copied there with <code>rsync</code> (or
       <code>scp</code> when <code>rsync</code> is not installed).
@@ -115,19 +120,19 @@ sudo ovm auto-backup off</code></pre>
     <h3>From the CLI</h3>
     <p>
       <code>ovm restore</code> with no name lists what is available and changes
-      nothing. Naming a bundle restores it, with the service stopped and
+      nothing. Naming a backup restores it, with the service stopped and
       restarted around the swap.
     </p>
 
     <h3>From the panel</h3>
     <p>
-      <strong>Settings &rarr; Backup</strong> accepts an uploaded bundle and
+      <strong>Settings &rarr; Backup</strong> accepts an uploaded backup and
       restores it <em>atomically</em>:
     </p>
     <ul>
       <li>Writes are refused &mdash; HTTP <code>503</code> &mdash; until the swap has finished, so nothing is half-written against a database being replaced.</li>
       <li>The database being replaced is kept as a fallback.</li>
-      <li>The restored database is migrated on the spot, so an older bundle comes back at the current schema version rather than needing a manual step.</li>
+      <li>The restored database is migrated on the spot, so an older backup comes back at the current schema version rather than needing a manual step.</li>
     </ul>
 
     <h2 id="what">What is in a backup, and what is not</h2>

@@ -256,20 +256,21 @@ to you.
 ## Backups
 
 ```bash
-sudo ovm backup                       # one verified backup now
-sudo ovm backup --keep 30             # keep 30 bundles
+sudo ovm backup                       # one database copy now
+sudo ovm backup --keep 30             # keep 30 backups
 sudo ovm backup schedule status
 sudo ovm backup schedule on --time 04:00 --keep 30
 sudo ovm backup schedule off
 sudo ovm restore                      # list what is available
-sudo ovm restore ovmanager-pre-update-20260917-120000.ovmbak
+sudo ovm restore ovmanager-pre-update-20260917_120000.db
 ```
 
-`backup` calls the panel's own `create_panel_backup()`: the database is snapshotted
-and bundled into `/var/lib/ovmanager/backups/ovmanager-backup-<stamp>-v1.ovmbak`, and
-older bundles beyond `--keep` are pruned (default 14). `--keep` is 1–500. The
-result prints the path, and the bundle's checksum is verified before it is called
-one.
+`backup` calls the panel's own `create_panel_backup()`: the WAL is checkpointed, the
+database is snapshotted through SQLite's online-backup API (consistent even while
+writers are active), and the snapshot is published as a plain `.db` copy at
+`/var/lib/ovmanager/backups/ovmanager-<label>-<stamp>.db`, mode `0600`. Older copies
+beyond `--keep` are pruned (default 14). `--keep` is 1–500. The result prints the
+path of the copy.
 
 `backup schedule` is bash-only and manages the host: it writes
 `ovmanager-backup.service` and `ovmanager-backup.timer` (daily `OnCalendar`,
@@ -359,7 +360,7 @@ sudo ovm uninstall --purge -y  # also delete /var/lib/ovmanager (data + certs)
 ```
 
 `update` is a six-step transaction run by `install.sh`: verified pre-update backup
-(`/var/lib/ovmanager/backups/ovmanager-pre-update-*.ovmbak`) and code snapshot
+(`/var/lib/ovmanager/backups/ovmanager-pre-update-*.db`) and code snapshot
 (`/var/backups/panel-code-*.tar.gz`), staged verified release with `.env`
 preserved, maintenance mode, activation, verification. A candidate that fails
 health fails back to the previous version and restores the database if the migration
