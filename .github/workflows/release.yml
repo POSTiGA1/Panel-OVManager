@@ -76,19 +76,21 @@ jobs:
           VER="$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)"
           STAGE="$(mktemp -d)"
           git archive --prefix="ovmanager-${VER}/" HEAD | tar -x -C "$STAGE"
-          mkdir -p "$STAGE/frontend"
-          cp -r frontend/dist "$STAGE/frontend/dist"
+          mkdir -p "$STAGE/ovmanager-${VER}/frontend"
+          cp -r frontend/dist "$STAGE/ovmanager-${VER}/frontend/dist"
           # --owner/--group: the Actions runner is uid 1001, and plain tar
           # stores that, so extracting as root gave every install a tree owned
           # by a uid that does not exist on the target.
           # --strip-components=1 in install.sh's fetch_release pairs with this
           # --prefix so the installed tree lands flat at $INSTALL_DIR.
-          # Members must be exactly "ovmanager-<version>/..." + "frontend/dist/...":
-          # install.sh strips ONE component, so "ovmanager-<version>/x" lands
-          # flat as "x" while "frontend/dist" keeps its shape. Archiving "."
-          # would add a "./" level and the strip would remove "." instead,
-          # leaving a nested version dir with no pyproject at top.
-          tar --owner=0 --group=0 -czf "ovmanager-${VER}.tar.gz" -C "$STAGE" "ovmanager-${VER}" frontend
+          # Members are all under "ovmanager-<version>/", code plus
+          # "frontend/dist" inside it: install.sh strips ONE component, so
+          # "ovmanager-<version>/x" lands flat as "x" and the prebuilt UI
+          # lands at "frontend/dist". Archiving "." would add a "./" level
+          # and the strip would remove "." instead, leaving a nested version
+          # dir with no pyproject at top; keeping "frontend/dist" outside
+          # the prefix would strip it to a stray top-level "dist/".
+          tar --owner=0 --group=0 -czf "ovmanager-${VER}.tar.gz" -C "$STAGE" "ovmanager-${VER}"
           sha256sum "ovmanager-${VER}.tar.gz" > "ovmanager-${VER}.sha256"
           echo "VER=${VER}" >> "$GITHUB_ENV"
 
