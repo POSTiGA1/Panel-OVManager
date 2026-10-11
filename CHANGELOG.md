@@ -1,3 +1,13 @@
+## 1.5.0 — 2026-10-11
+
+Lightweight cuts. Single-admin only: `/api/admin/*` management, per-admin
+plan overrides and `username_prefix` removed (migration v24, one owner row).
+Backups are plain `.db` files — `.ovmbak` bundle format and legacy compat
+deleted. i18n lists single-sourced (`SUPPORTED_LANGS`/`isRTL`), `check-i18n`
+budget 0. TLS stays 3-option (self-signed / LE-ACME / custom path), DB record
++ `.env` force, HTTPS-only with boot self-signed fallback; port-80 probe
+removed. Graphify output local-only (untracked).
+
 ## 1.4.1 — 2026-10-07
 
 Part E: unified audit-centric events. `record_event` writes every health
