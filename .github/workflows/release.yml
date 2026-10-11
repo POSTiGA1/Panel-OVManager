@@ -83,7 +83,12 @@ jobs:
           # by a uid that does not exist on the target.
           # --strip-components=1 in install.sh's fetch_release pairs with this
           # --prefix so the installed tree lands flat at $INSTALL_DIR.
-          tar --owner=0 --group=0 -czf "ovmanager-${VER}.tar.gz" -C "$STAGE" .
+          # Members must be exactly "ovmanager-<version>/..." + "frontend/dist/...":
+          # install.sh strips ONE component, so "ovmanager-<version>/x" lands
+          # flat as "x" while "frontend/dist" keeps its shape. Archiving "."
+          # would add a "./" level and the strip would remove "." instead,
+          # leaving a nested version dir with no pyproject at top.
+          tar --owner=0 --group=0 -czf "ovmanager-${VER}.tar.gz" -C "$STAGE" "ovmanager-${VER}" frontend
           sha256sum "ovmanager-${VER}.tar.gz" > "ovmanager-${VER}.sha256"
           echo "VER=${VER}" >> "$GITHUB_ENV"
 
